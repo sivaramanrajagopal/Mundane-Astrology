@@ -15,6 +15,11 @@ try:
 except ImportError:
     pass
 
+from dasha_logic import (
+    get_country_dasha, get_dasha_risk_level,
+    DASHA_FOCUS, BHUKTI_TRIGGER, get_relationship,
+    PLANET_FRIENDSHIPS, DASA_DURATIONS,
+)
 from astrology_engine import (
     get_transit_data,
     get_house_positions,
@@ -380,6 +385,74 @@ _CSS = """
     .ma-card{padding:10px 12px}
     .watch-card{padding:10px 12px}
     .p-badge{font-size:.55rem;padding:1px 3px}
+  }
+  /* ── Dasha Timeline tab styles ───────────────────────────────────── */
+  .dasha-strip{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}
+  .dasha-card{flex:1;min-width:200px;border-radius:14px;padding:16px 18px;
+              box-shadow:0 2px 10px rgba(0,0,0,.10);color:#1e293b !important}
+  .dasha-maha{background:linear-gradient(135deg,#1e293b,#1e3a5f);
+              border:1px solid #334155}
+  .dasha-bhuk{background:#f8fafc;border:1px solid #e2e8f0}
+  .dasha-planet-lbl{font-size:.7rem;font-weight:600;color:#94a3b8;
+                    text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+  .dasha-planet-name{font-size:1.55rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
+  .dasha-maha .dasha-planet-name{color:#fbbf24 !important}
+  .dasha-bhuk .dasha-planet-name{color:#1e293b !important}
+  .dasha-focus{font-size:.77rem;line-height:1.5;margin-bottom:8px}
+  .dasha-maha .dasha-focus{color:#94a3b8 !important}
+  .dasha-bhuk .dasha-focus{color:#475569 !important}
+  .dasha-meta{font-size:.7rem;color:#64748b !important}
+  .dasha-maha .dasha-meta{color:#64748b !important}
+  .dasha-remaining{display:inline-block;margin-top:6px;border-radius:99px;
+                   padding:2px 10px;font-size:.72rem;font-weight:700}
+  .dasha-maha .dasha-remaining{background:#334155;color:#fbbf24 !important}
+  .dasha-bhuk .dasha-remaining{background:#dbeafe;color:#1e40af !important}
+  /* Relationship badge */
+  .rel-strip{text-align:center;margin:6px 0 12px;font-size:.85rem;font-weight:700}
+  .rel-friend {color:#166534 !important;background:#dcfce7;
+               border-radius:99px;padding:4px 14px;display:inline-block}
+  .rel-enemy  {color:#991b1b !important;background:#fee2e2;
+               border-radius:99px;padding:4px 14px;display:inline-block}
+  .rel-neutral{color:#854d0e !important;background:#fef9c3;
+               border-radius:99px;padding:4px 14px;display:inline-block}
+  /* Double-trigger alert */
+  .dt-alert{border-radius:12px;padding:14px 18px;margin:10px 0;font-size:.87rem}
+  .dt-critical{background:#fff1f2;border:2px solid #ef4444}
+  .dt-mixed   {background:#fefce8;border:1px solid #eab308}
+  .dt-aligned {background:#f0fdf4;border:1px solid #22c55e}
+  .dt-neutral {background:#f8fafc;border:1px solid #e2e8f0}
+  .dt-title{font-weight:800;font-size:.95rem;margin-bottom:6px}
+  .dt-critical .dt-title{color:#b91c1c !important}
+  .dt-mixed    .dt-title{color:#92400e !important}
+  .dt-aligned  .dt-title{color:#166534 !important}
+  .dt-neutral  .dt-title{color:#1e293b !important}
+  /* Upcoming bhukti pills */
+  .bh-upcoming{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .bh-pill{flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;
+           border-radius:10px;padding:8px 12px;text-align:center;
+           color:#1e293b !important}
+  .bh-pill-planet{font-weight:700;font-size:.85rem;color:#1e293b !important}
+  .bh-pill-date  {font-size:.68rem;color:#64748b !important;margin-top:2px}
+  /* Full dasha table */
+  .dasha-tbl{width:100%;border-collapse:collapse;font-size:.83rem;color:#1e293b}
+  .dasha-tbl th{background:#1e293b;color:#f1f5f9 !important;padding:8px 12px;
+                text-align:left;font-weight:600}
+  .dasha-tbl td{padding:8px 12px;border-bottom:1px solid #e2e8f0;
+                color:#1e293b !important;background:#ffffff}
+  .dasha-tbl tr.dt-current td{background:#fef9c3 !important;font-weight:700}
+  .dasha-tbl tr:nth-child(even) td{background:#f8fafc}
+  .dasha-tbl tr.dt-current:nth-child(even) td{background:#fef9c3 !important}
+  /* D/B marker on chart badges */
+  .db-marker{font-size:.55rem;font-weight:800;vertical-align:super;
+             margin-left:1px;letter-spacing:0}
+  /* Mobile: dasha tab */
+  @media(max-width:768px){
+    .dasha-card{min-width:unset !important;width:100% !important;padding:12px 14px}
+    .dasha-planet-name{font-size:1.25rem}
+    .bh-pill{min-width:unset !important;width:100% !important}
+    .dasha-tbl{font-size:.76rem}
+    .dasha-tbl th,.dasha-tbl td{padding:6px 8px}
+    .dt-alert{padding:10px 12px}
   }
 </style>
 """
@@ -838,6 +911,8 @@ def draw_south_indian_chart(
     chart_subtitle: str = "",
     retro_set: set = None,
     natal_sign_map: dict = None,
+    dasha_planet: str = "",
+    bhukti_planet: str = "",
 ) -> str:
     """
     Render a South Indian 4×4 square chart as an HTML table.
@@ -862,7 +937,8 @@ def draw_south_indian_chart(
         natal_signs = {idx for idx in natal_sign_map.values() if 0 <= idx <= 11}
 
     def _badge(planet: str, retro: bool) -> str:
-        """Fully inline-styled pill badge — immune to Gradio theme overrides."""
+        """Fully inline-styled pill badge — immune to Gradio theme overrides.
+        Shows D marker for Mahadasha lord, B marker for Bhukti lord."""
         short = _PLANET_SHORT.get(planet, planet[:2])
         mark  = "℞" if retro else ""
         if planet in _GROWTH_SET:
@@ -877,11 +953,17 @@ def draw_south_indian_chart(
             bg, fg = "#ede9fe", "#5b21b6"
         else:
             bg, fg = "#f1f5f9", "#475569"
+        # D/B superscript markers for Dasha/Bhukti lords
+        db_mark = ""
+        if planet == dasha_planet:
+            db_mark += '<sup style="font-size:.5rem;font-weight:900;color:#7c3aed !important;margin-left:1px">D</sup>'
+        if planet == bhukti_planet:
+            db_mark += '<sup style="font-size:.5rem;font-weight:900;color:#dc2626 !important;margin-left:1px">B</sup>'
         return (
             f'<span style="display:inline-block;border-radius:99px;padding:1px 7px;'
             f'font-size:.7rem;font-weight:700;margin:1px 1px 2px;'
             f'background:{bg};color:{fg} !important;'
-            f'line-height:1.5;white-space:nowrap">{short}{mark}</span>'
+            f'line-height:1.5;white-space:nowrap">{short}{mark}{db_mark}</span>'
         )
 
     def _cell(sign_idx: int) -> str:
@@ -957,13 +1039,17 @@ def draw_south_indian_chart(
 
 def render_south_indian_html(planet_data: dict, lagna_sign: str,
                               chart_title: str = "", chart_subtitle: str = "",
-                              natal_planet_data: dict = None) -> str:
+                              natal_planet_data: dict = None,
+                              dasha_planet: str = "",
+                              bhukti_planet: str = "") -> str:
     """
     Public API: render South Indian chart from full planet_data dicts.
 
     planet_data       : {planet: {sign_index, retrograde, ...}}
     lagna_sign        : sign name string e.g. "Taurus"
     natal_planet_data : if provided, conjunctions (transit on natal sign) are highlighted
+    dasha_planet      : current Mahadasha lord name — shown with ᴰ superscript
+    bhukti_planet     : current Bhukti lord name — shown with ᴮ superscript
     """
     from astrology_engine import RASIS_ENGLISH
     lagna_idx = RASIS_ENGLISH.index(lagna_sign) if lagna_sign in RASIS_ENGLISH else 0
@@ -976,7 +1062,7 @@ def render_south_indian_html(planet_data: dict, lagna_sign: str,
         natal_map = {p: d["sign_index"] for p, d in natal_planet_data.items()
                      if isinstance(d, dict) and "sign_index" in d}
     return draw_south_indian_chart(sign_map, lagna_idx, chart_title, chart_subtitle,
-                                   retro_set, natal_map)
+                                   retro_set, natal_map, dasha_planet, bhukti_planet)
 
 
 def _render_chart_legend() -> str:
@@ -995,6 +1081,10 @@ def _render_chart_legend() -> str:
         '<span style="border:3px solid #f59e0b;padding:1px 6px;border-radius:4px;'
         'color:#1e293b !important">Natal + Transit Conjunction</span></span>'
         '<span style="color:#64748b !important">ASC = Country Lagna &nbsp;|&nbsp; ℞ = Retrograde</span>'
+        '<span style="color:#64748b !important">'
+        '<sup style="color:#7c3aed !important;font-weight:900">D</sup> = Mahadasha Lord &nbsp;|&nbsp;'
+        '<sup style="color:#dc2626 !important;font-weight:900">B</sup> = Bhukti Lord'
+        '</span>'
         '</div>'
     )
 
@@ -1130,6 +1220,286 @@ def _render_daily_pulse(house_pos: dict, transit_data: dict, country: str) -> st
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Dasha Timeline renderers
+# ─────────────────────────────────────────────────────────────────────────────
+_PLANET_COLOR_DASHA = {
+    "Sun": "#d97706", "Moon": "#2563eb", "Mercury": "#7c3aed", "Venus": "#16a34a",
+    "Mars": "#dc2626", "Jupiter": "#15803d", "Saturn": "#92400e",
+    "Rahu": "#991b1b", "Ketu": "#9f1239",
+}
+_MALEFIC_SET  = {"Mars", "Saturn", "Rahu", "Ketu"}
+_BENEFIC_SET  = {"Jupiter", "Venus"}
+
+
+def _dasha_planet_emoji(planet: str) -> str:
+    return {
+        "Sun":"☀️","Moon":"🌙","Mercury":"☿","Venus":"♀","Mars":"♂",
+        "Jupiter":"♃","Saturn":"♄","Rahu":"☊","Ketu":"☋",
+    }.get(planet, "⭐")
+
+
+def _render_dasha_timeline_html(dasha_info: dict, house_pos: dict,
+                                 transit_data: dict) -> str:
+    """Full Dasha & Bhukti Timeline tab HTML."""
+    if not dasha_info:
+        return f'{_CSS}<div class="ma-root"><p style="color:#64748b">No dasha data available for this country.</p></div>'
+
+    country  = dasha_info["country"]
+    notes    = dasha_info["notes"]
+    nak      = dasha_info["nakshatra"]
+    pada     = dasha_info["pada"]
+    md       = dasha_info["mahadasha"]
+    bh       = dasha_info["bhukti"]
+    rel      = dasha_info["relationship"]
+    upcoming = dasha_info.get("upcoming_bhuktis", [])
+    nxt_d    = dasha_info.get("next_dashas", [])
+
+    # ── Moon nakshatra header ────────────────────────────────────────────────
+    header_html = f"""
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+            padding:10px 14px;margin-bottom:10px;color:#1e293b !important">
+  <span style="font-weight:700;font-size:.92rem;color:#1e293b !important">
+    🌙 Natal Moon: <strong style="color:#7c3aed !important">{nak}</strong> Pada {pada}
+  </span>
+  <span style="margin-left:10px;font-size:.75rem;color:#64748b !important">{notes}</span>
+</div>"""
+
+    # ── Mahadasha card ───────────────────────────────────────────────────────
+    md_col  = _PLANET_COLOR_DASHA.get(md["planet"], "#475569")
+    md_emj  = _dasha_planet_emoji(md["planet"])
+    md_card = f"""
+<div class="dasha-card dasha-maha">
+  <div class="dasha-planet-lbl" style="color:#94a3b8 !important">Mahadasha (Major Period)</div>
+  <div class="dasha-planet-name" style="color:{md_col} !important">{md_emj} {md["planet"]}</div>
+  <div class="dasha-focus" style="color:#94a3b8 !important">{md["focus"]}</div>
+  <div class="dasha-meta" style="color:#64748b !important">
+    {md["start"]} → {md["end"]} &nbsp;·&nbsp; {md["years"]} yrs total
+  </div>
+  <div class="dasha-remaining" style="background:#334155;color:#fbbf24 !important">
+    ⏳ {md["remaining"]} yrs remaining
+  </div>
+</div>"""
+
+    # ── Bhukti card ──────────────────────────────────────────────────────────
+    bh_col  = _PLANET_COLOR_DASHA.get(bh["planet"], "#475569")
+    bh_emj  = _dasha_planet_emoji(bh["planet"])
+    bh_card = f"""
+<div class="dasha-card dasha-bhuk">
+  <div class="dasha-planet-lbl" style="color:#64748b !important">Bhukti (Sub-Period Trigger)</div>
+  <div class="dasha-planet-name" style="color:{bh_col} !important">{bh_emj} {bh["planet"]}</div>
+  <div class="dasha-focus" style="color:#475569 !important">{bh["trigger"]}</div>
+  <div class="dasha-meta" style="color:#64748b !important">
+    {bh["start"]} → {bh["end"]}
+  </div>
+  <div class="dasha-remaining" style="background:#dbeafe;color:#1e40af !important">
+    ⏳ {bh["remaining_months"]} months remaining
+  </div>
+</div>"""
+
+    dasha_strip = f'<div class="dasha-strip">{md_card}{bh_card}</div>'
+
+    # ── Relationship badge ───────────────────────────────────────────────────
+    if rel == "Same":
+        rel_cls, rel_icon = "rel-friend",  f"⚡ Intensified — {md['planet']}–{md['planet']} Period"
+        rel_note = f"Same planet rules both Mahadasha and Bhukti — its qualities are magnified and operate without dilution. Strong single-planet focus."
+    elif rel == "Friend":
+        rel_cls, rel_icon = "rel-friend",  "🤝 Harmonious Period"
+        rel_note = f"{md['planet']} and {bh['planet']} are natural friends — their energies amplify each other positively."
+    elif rel == "Enemy":
+        rel_cls, rel_icon = "rel-enemy",   "⚔️ Tense Period"
+        rel_note = f"{md['planet']} and {bh['planet']} are natural enemies — conflicting impulses, internal friction."
+    else:
+        rel_cls, rel_icon = "rel-neutral", "⚖️ Neutral Period"
+        rel_note = f"{md['planet']} and {bh['planet']} are neutral — outcomes depend on transits and house lordships."
+
+    rel_html = f"""
+<div class="rel-strip">
+  <span class="{rel_cls}">{rel_icon}</span>
+  <div style="font-size:.78rem;font-weight:400;color:#475569 !important;margin-top:6px;text-align:left;
+              background:#f8fafc;border-radius:8px;padding:8px 12px">{rel_note}</div>
+</div>"""
+
+    # ── Double Trigger alert ─────────────────────────────────────────────────
+    dt_html = _render_double_trigger_html(dasha_info, house_pos, transit_data)
+
+    # ── Upcoming bhuktis ─────────────────────────────────────────────────────
+    up_pills = ""
+    for ub in upcoming:
+        c = _PLANET_COLOR_DASHA.get(ub["planet"], "#475569")
+        e = _dasha_planet_emoji(ub["planet"])
+        up_pills += f"""
+<div class="bh-pill">
+  <div class="bh-pill-planet" style="color:{c} !important">{e} {ub["planet"]}</div>
+  <div class="bh-pill-date">{ub["start"]}</div>
+  <div class="bh-pill-date">{ub["end"]}</div>
+</div>"""
+
+    upcoming_html = f"""
+<div style="margin-top:12px">
+  <div style="font-weight:700;font-size:.83rem;color:#475569 !important;
+              margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">
+    ▶ Next Bhuktis
+  </div>
+  <div class="bh-upcoming">{up_pills or '<span style="color:#94a3b8;font-size:.82rem">End of dasha cycle</span>'}</div>
+</div>"""
+
+    # ── Full dasha timeline table ─────────────────────────────────────────────
+    all_dashas_rows = ""
+    # Build complete list: current + next
+    cur_row = f"""<tr class="dt-current">
+  <td style="background:#fef9c3 !important;font-weight:700;color:#1e293b !important">
+    {_dasha_planet_emoji(md["planet"])} {md["planet"]} ← NOW
+  </td>
+  <td style="background:#fef9c3 !important;color:#1e293b !important">{md["start"]}</td>
+  <td style="background:#fef9c3 !important;color:#1e293b !important">{md["end"]}</td>
+  <td style="background:#fef9c3 !important;color:#1e293b !important">{md["years"]} yrs</td>
+  <td style="background:#fef9c3 !important;color:#1e293b !important;font-size:.75rem">
+    {md["focus"]}</td>
+</tr>"""
+    for nd in nxt_d:
+        c = _PLANET_COLOR_DASHA.get(nd["planet"], "#475569")
+        e = _dasha_planet_emoji(nd["planet"])
+        f_txt = DASHA_FOCUS.get(nd["planet"], "")
+        all_dashas_rows += f"""<tr>
+  <td style="color:#1e293b !important;font-weight:600">
+    <span style="color:{c} !important">{e}</span> {nd["planet"]}
+  </td>
+  <td style="color:#475569 !important">{nd["start"]}</td>
+  <td style="color:#475569 !important">{nd["end"]}</td>
+  <td style="color:#475569 !important">{nd["years"]} yrs</td>
+  <td style="color:#475569 !important;font-size:.75rem">{f_txt}</td>
+</tr>"""
+
+    full_table = f"""
+<details class="ma-accordion" style="margin-top:14px">
+  <summary style="background:#f8fafc !important;color:#1e293b !important">
+    📅 Full Dasha Timeline — click to expand
+  </summary>
+  <div class="acc-body" style="background:#ffffff !important;padding:14px 16px;overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table class="dasha-tbl" style="min-width:480px">
+      <thead>
+        <tr>
+          <th>Planet</th><th>Starts</th><th>Ends</th><th>Duration</th><th>Focus Area</th>
+        </tr>
+      </thead>
+      <tbody>
+        {cur_row}
+        {all_dashas_rows}
+      </tbody>
+    </table>
+    <div style="font-size:.7rem;color:#64748b;margin-top:6px">
+      🟡 Highlighted row = current Mahadasha
+    </div>
+  </div>
+</details>"""
+
+    return f"""{_CSS}
+<div class="ma-root">
+  {header_html}
+  {dasha_strip}
+  {rel_html}
+  {dt_html}
+  {upcoming_html}
+  {full_table}
+</div>"""
+
+
+def _render_double_trigger_html(dasha_info: dict, house_pos: dict,
+                                 transit_data: dict) -> str:
+    """
+    Double Trigger: cross-reference Dasha risk with transit risk.
+    CRITICAL ALERT  — both dasha + transit = high risk
+    Mixed Signals   — one positive, one negative
+    Aligned Opportunity — both positive
+    Standard Watch  — neutral
+    """
+    if not dasha_info:
+        return ""
+
+    md_planet = dasha_info["mahadasha"]["planet"]
+    bh_planet = dasha_info["bhukti"]["planet"]
+    dasha_risk = get_dasha_risk_level(dasha_info)
+
+    # Transit risk: count malefics in crisis houses (H6/H8/H12) + H10 Mars/Rahu
+    crisis_houses = {6, 8, 12}
+    crisis_count = sum(
+        1 for p, h in house_pos.items()
+        if p in _MALEFIC_SET and h in crisis_houses
+    )
+    mars_h = house_pos.get("Mars", 0)
+    rahu_h = house_pos.get("Rahu", 0)
+    h10_tension = (mars_h == 10 and rahu_h == 10)
+
+    # Overall transit risk level
+    if crisis_count >= 2 or h10_tension:
+        transit_risk = "high"
+    elif crisis_count == 1:
+        transit_risk = "medium"
+    else:
+        transit_risk = "low"
+
+    # Determine combined alert
+    if dasha_risk == "high" and transit_risk == "high":
+        cls, icon, title = "dt-critical", "🚨", "CRITICAL ALERT — Dasha & Transit Aligned on Risk"
+        body = (
+            f"The {md_planet} Mahadasha (focus: foreign affairs/disruption) "
+            f"and {bh_planet} Bhukti (trigger: {BHUKTI_TRIGGER.get(bh_planet,'')}) "
+            f"are operating together with high-stress transits. "
+            f"This is a compounded risk window — both the background Dasha cycle "
+            f"and immediate transit positions point to turbulence."
+        )
+    elif dasha_risk == "high" and transit_risk == "medium":
+        cls, icon, title = "dt-critical", "⚠️", "ELEVATED ALERT — Dasha Amplifies Transit Stress"
+        body = (
+            f"The {md_planet}–{bh_planet} dasha combination is inherently tense "
+            f"and is now activating transit stress patterns. Monitor closely."
+        )
+    elif dasha_risk == "low" and transit_risk == "high":
+        cls, icon, title = "dt-mixed", "⚖️", "MIXED SIGNALS — Transits Conflict with Dasha Ease"
+        body = (
+            f"Current transits are under significant stress, but the "
+            f"{md_planet} Mahadasha provides a stabilizing background influence. "
+            f"Short-term volatility is possible; medium-term outlook stays manageable."
+        )
+    elif dasha_risk == "low" and transit_risk == "low":
+        cls, icon, title = "dt-aligned", "🌟", "ALIGNED OPPORTUNITY — Dasha & Transit Both Positive"
+        body = (
+            f"The {md_planet} Mahadasha (focus: {DASHA_FOCUS.get(md_planet,'')}) "
+            f"aligns with supportive transit positions. "
+            f"This window favours growth, expansion, and policy success."
+        )
+    else:
+        cls, icon, title = "dt-mixed", "⚖️", "MIXED SIGNALS — Monitor Both Dasha and Transit"
+        body = (
+            f"The {md_planet} Mahadasha and {bh_planet} Bhukti produce a mixed backdrop. "
+            f"Some transit positions support growth while others introduce friction. "
+            f"Context-dependent outcomes — watch specific house activations."
+        )
+
+    # Add specific transit detail
+    detail_parts = []
+    if h10_tension:
+        detail_parts.append("🔴 Mars + Rahu in H10 → covert power struggles")
+    if crisis_count >= 2:
+        crisis_p = [p for p, h in house_pos.items() if p in _MALEFIC_SET and h in crisis_houses]
+        detail_parts.append(f"🔴 {', '.join(crisis_p)} in crisis houses (H6/H8/H12)")
+    if mars_h in {1, 7}:
+        detail_parts.append(f"⚠️ Mars in H{mars_h} — external aggression / border risk")
+    detail_html = (
+        "<ul style='margin:8px 0 0;padding-left:16px;color:#1e293b !important;font-size:.8rem'>"
+        + "".join(f"<li style='color:#1e293b !important;margin-bottom:3px'>{d}</li>" for d in detail_parts)
+        + "</ul>"
+    ) if detail_parts else ""
+
+    return f"""
+<div class="dt-alert {cls}">
+  <div class="dt-title">{icon} {title}</div>
+  <div style="font-size:.83rem;color:#1e293b !important;line-height:1.6">{body}</div>
+  {detail_html}
+</div>"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Raw ephemeris DataFrame
 # ─────────────────────────────────────────────────────────────────────────────
 def _build_raw_ephemeris_df(transit_data: dict) -> pd.DataFrame:
@@ -1184,8 +1554,10 @@ def mundane_analysis(dt_input, country):
     house_pos    = get_house_positions(transit_data, country)
     categories   = categorize_transits(house_pos)
 
+    dasha_info = get_country_dasha(country, dt)
     llm    = generate_llm_analysis(
-        country, transit_data, house_pos, categories, OPENAI_API_KEY
+        country, transit_data, house_pos, categories, OPENAI_API_KEY,
+        dasha_info=dasha_info,
     )
     raw_df = _build_raw_ephemeris_df(transit_data)
 
@@ -1208,8 +1580,10 @@ def regional_analysis(dt_input, country):
     gauge_html  = _render_gauge_html(overall_score, country, summary)
     pulse_html  = _render_categorical_pulse_html(pulse)
 
+    dasha_info  = get_country_dasha(country, dt)
     llm = generate_llm_analysis(
-        country, transit_data, house_pos, categories, OPENAI_API_KEY
+        country, transit_data, house_pos, categories, OPENAI_API_KEY,
+        dasha_info=dasha_info,
     )
 
     market_tip = pulse.get("Share Market & Economy", {}).get("market_tip", "")
@@ -1442,18 +1816,27 @@ def visual_astro_charts(dt_input, country):
     event_label  = natal_data.get("_event", "")
     dt_str       = dt.strftime("%d %b %Y %H:%M UTC")
 
+    # Get Dasha info for D/B markers on chart badges
+    dasha_info   = get_country_dasha(country, dt)
+    d_planet     = dasha_info.get("mahadasha", {}).get("planet", "") if dasha_info else ""
+    b_planet     = dasha_info.get("bhukti",    {}).get("planet", "") if dasha_info else ""
+
     # Slim down natal_data to planet-only entries for render_south_indian_html
     natal_planet_data = {p: natal_data[p] for p in VEDIC_PLANETS
                          if p in natal_data and isinstance(natal_data[p], dict)}
 
+    # Natal chart shows D/B markers on the natal planet positions
     natal_tbl = render_south_indian_html(
         natal_planet_data, lagna_sign,
         chart_title=f"🏛️ {country}", chart_subtitle="Natal Chart",
+        dasha_planet=d_planet, bhukti_planet=b_planet,
     )
+    # Transit chart shows D/B markers on transit planet positions + conjunction gold border
     transit_tbl = render_south_indian_html(
         transit_data, lagna_sign,
         chart_title=f"🌍 {country}", chart_subtitle="Live Transits",
         natal_planet_data=natal_planet_data,
+        dasha_planet=d_planet, bhukti_planet=b_planet,
     )
     legend = _render_chart_legend()
 
@@ -1487,10 +1870,19 @@ def visual_astro_charts(dt_input, country):
     return natal_html, transit_html, qpulse_html, pulse_html
 
 
+def dasha_timeline(dt_input, country):
+    """Tab 6: Vimshottari Dasha & Bhukti Timeline."""
+    dt           = _to_utc_datetime(dt_input)
+    transit_data = get_transit_data(dt)
+    house_pos    = get_house_positions(transit_data, country)
+    dasha_info   = get_country_dasha(country, dt)
+    return _render_dasha_timeline_html(dasha_info, house_pos, transit_data)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Mundane Astrology Dashboard", css=_GRADIO_CSS) as demo:
+with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
 
     gr.Markdown(
         "# 🪐 Mundane Astrology Dashboard\n"
@@ -1566,7 +1958,8 @@ with gr.Blocks(title="Mundane Astrology Dashboard", css=_GRADIO_CSS) as demo:
             gr.Markdown(
                 "South Indian square charts + financial-dashboard pulse. "
                 "⭐ Gold border = Natal+Transit conjunction. "
-                "🔴 Diagonal slash = Country Lagna (ASC)."
+                "🔴 Diagonal slash = Country Lagna (ASC). "
+                "**ᴰ** = Mahadasha Lord · **ᴮ** = Bhukti Lord"
             )
             country_dd5 = gr.Dropdown(
                 choices=COUNTRIES, value="India", label="Select Country"
@@ -1581,6 +1974,19 @@ with gr.Blocks(title="Mundane Astrology Dashboard", css=_GRADIO_CSS) as demo:
                     quick_pulse_out = gr.HTML(label="⚡ Quick Summary Pulse")
                 with gr.Column(scale=2):
                     daily_pulse_out = gr.HTML(label="📊 Daily Pulse")
+
+        # ── Tab 6: Dasha Timeline ──────────────────────────────────────────
+        with gr.Tab("📅 Dasha Timeline"):
+            gr.Markdown(
+                "**Vimshottari Dasha & Bhukti** — National period analysis. "
+                "Shows current Mahadasha (major cycle) + Bhukti (sub-period trigger), "
+                "their relationship, a Double Trigger alert cross-referencing transit stress, "
+                "and the full dasha timeline."
+            )
+            country_dd6 = gr.Dropdown(
+                choices=COUNTRIES, value="India", label="Select Country"
+            )
+            dasha_out = gr.HTML(label="📅 Dasha & Bhukti Timeline")
 
     # ── Event wiring ──────────────────────────────────────────────────────
     calc_btn.click(
@@ -1623,6 +2029,16 @@ with gr.Blocks(title="Mundane Astrology Dashboard", css=_GRADIO_CSS) as demo:
         inputs=[date_input, country_dd5],
         outputs=[natal_chart_out, transit_chart_out, quick_pulse_out, daily_pulse_out],
     )
+    calc_btn.click(
+        fn=dasha_timeline,
+        inputs=[date_input, country_dd6],
+        outputs=[dasha_out],
+    )
+    country_dd6.change(
+        fn=dasha_timeline,
+        inputs=[date_input, country_dd6],
+        outputs=[dasha_out],
+    )
 
 
 if __name__ == "__main__":
@@ -1631,4 +2047,5 @@ if __name__ == "__main__":
         server_port=7860,
         show_error=True,
         theme=gr.themes.Soft(),
+        css=_GRADIO_CSS,
     )

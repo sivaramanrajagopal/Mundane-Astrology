@@ -290,7 +290,8 @@ Be specific — name the planet, sign, and country impact."""
 # LLM prompt builder (bullet-point format)
 # ---------------------------------------------------------------------------
 def _build_llm_prompt(country: str, transit_data: dict,
-                       house_positions: dict, categories: dict) -> str:
+                       house_positions: dict, categories: dict,
+                       dasha_info: dict = None) -> str:
     import datetime
     today = datetime.date.today().isoformat()
     lagna = get_lagna_sign(country)
@@ -314,6 +315,30 @@ def _build_llm_prompt(country: str, transit_data: dict,
     lines += ["", "Astrological Signals:"]
     for planet, cat in categories.items():
         lines.append(f"  - {planet} H{house_positions.get(planet,'?')}: {cat}")
+
+    # ── Dasha / Bhukti context (Double Trigger logic) ────────────────────────
+    if dasha_info and dasha_info.get("mahadasha"):
+        md  = dasha_info["mahadasha"]
+        bh  = dasha_info["bhukti"]
+        rel = dasha_info.get("relationship", "Neutral")
+        lines += [
+            "",
+            "Vimshottari Dasha Context (National Chart):",
+            f"  - Mahadasha: {md['planet']} ({md['start']} → {md['end']}, "
+            f"{md['remaining']} yrs remaining)",
+            f"    Focus Area: {md['focus']}",
+            f"  - Bhukti (sub-period): {bh['planet']} (ends {bh['end']}, "
+            f"{bh['remaining_months']} months remaining)",
+            f"    Trigger Events: {bh['trigger']}",
+            f"  - Dasha–Bhukti Relationship: {rel}",
+            "",
+            "DOUBLE TRIGGER RULE:",
+            f"  Analyze the intersection of the {md['planet']} Mahadasha and "
+            f"{bh['planet']} Bhukti with the current planetary transits.",
+            "  • If both Dasha and Transit lords point to RISK → flag 'CRITICAL ALERT'.",
+            "  • If they conflict (one positive, one negative) → label 'Mixed Signals'.",
+            "  • If both are positive → label 'Aligned Opportunity'.",
+        ]
 
     lines += [
         "",
@@ -365,7 +390,8 @@ def _text_to_bullets(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 def generate_llm_analysis(country: str, transit_data: dict,
                            house_positions: dict, categories: dict,
-                           openai_api_key: str) -> dict:
+                           openai_api_key: str,
+                           dasha_info: dict = None) -> dict:
     """
     Call OpenAI (gpt-4o-mini) to generate narrative analysis.
     Returns {bright_side, strategic_risks, mundane_context} as raw text.
@@ -381,7 +407,7 @@ def generate_llm_analysis(country: str, transit_data: dict,
     try:
         from openai import OpenAI
         client   = OpenAI(api_key=openai_api_key)
-        prompt   = _build_llm_prompt(country, transit_data, house_positions, categories)
+        prompt   = _build_llm_prompt(country, transit_data, house_positions, categories, dasha_info)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
