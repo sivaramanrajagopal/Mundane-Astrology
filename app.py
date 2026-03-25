@@ -45,9 +45,14 @@ COUNTRIES      = list(COUNTRY_LAGNAS.keys())
 # Global CSS injected via gr.Blocks(css=...) — fixes Gradio chrome visibility
 # ─────────────────────────────────────────────────────────────────────────────
 _GRADIO_CSS = """
-/* ── Dark app shell ──────────────────────────────────────────────────── */
-body { background: #0b0f19 !important; }
-.gradio-container { background-color: #0b0f19 !important; color: #f8fafc !important; }
+/* ── Dark app shell + prevent horizontal page scroll ────────────────── */
+body, html { background: #0b0f19 !important; overflow-x: hidden; max-width: 100vw; }
+.gradio-container {
+  background-color: #0b0f19 !important;
+  color: #f8fafc !important;
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+}
 
 /* ── Tab navigation ──────────────────────────────────────────────────── */
 .tab-nav button { color: #94a3b8 !important; background: transparent !important; }
@@ -112,8 +117,9 @@ div.ma-root {
 /* ── iOS / Safari text-size fix ─────────────────────────────────────── */
 html { -webkit-text-size-adjust: 100%; }
 
-/* ── Mobile: tab nav scrollable row ─────────────────────────────────── */
+/* ── Mobile breakpoint ───────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  /* Scrollable tab nav */
   .tab-nav {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
@@ -122,23 +128,48 @@ html { -webkit-text-size-adjust: 100%; }
   }
   .tab-nav::-webkit-scrollbar { display: none; }
   .tab-nav button {
-    min-width: 70px !important;
-    font-size: .72rem !important;
+    min-width: 60px !important;
+    font-size: .68rem !important;
     white-space: nowrap;
-    padding: 8px 10px !important;
+    padding: 6px 8px !important;
   }
 
-  /* Stack top date+button row vertically */
-  .gr-row, .row-wrap {
-    flex-direction: column !important;
+  /* Stack the top date+button inputs row */
+  .top-inputs-row {
     flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .top-inputs-row > * {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Stack the two SI charts (Tab 5, Row 1) */
+  .charts-row {
+    flex-wrap: wrap !important;
+  }
+  .charts-row > * {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Stack the Quick Pulse + Daily Pulse row (Tab 5, Row 2) */
+  .pulse-row {
+    flex-wrap: wrap !important;
+  }
+  .pulse-row > * {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
   }
 
   /* Touch-friendly tap targets */
   button { min-height: 44px; }
-  select, input { min-height: 40px; font-size: 16px !important; /* prevents iOS zoom */ }
+  select, input { min-height: 40px; font-size: 16px !important; }
 
-  /* Shrink the Calculate button */
+  /* Full-width primary button */
   .primary { width: 100% !important; }
 
   /* DataFrame wrapper horizontal scroll */
@@ -153,7 +184,8 @@ _CSS = """
 <style>
   /* Root reset — overrides Gradio theme inheritance */
   .ma-root{color:#1e293b !important;background:#ffffff;font-family:'Segoe UI',system-ui,sans-serif;
-           border-radius:10px;padding:10px;line-height:1.5}
+           border-radius:10px;padding:10px;line-height:1.5;
+           max-width:100%;overflow-x:hidden;word-break:break-word}
   .ma-root *{box-sizing:border-box}
   /* Cards */
   .ma-card{border-radius:12px;padding:14px 18px;margin:6px 0;
@@ -180,7 +212,7 @@ _CSS = """
   .pulse-table tr:nth-child(even) td{background:#f8fafc}
   /* Gauge */
   .gauge-wrap{margin:8px 0 16px;color:#1e293b !important}
-  .gauge-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;color:#1e293b !important}
+  .gauge-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;color:#1e293b !important;flex-wrap:wrap}
   .gauge-track{position:relative;height:24px;border-radius:12px;
                background:linear-gradient(to right,#ef4444 0%,#ef4444 33%,
                #eab308 33%,#eab308 66%,#22c55e 66%,#22c55e 100%);
@@ -307,10 +339,9 @@ _CSS = """
     color:#1e293b !important}
   /* ── Mobile: 768px breakpoint ─────────────────────────────────────── */
   @media(max-width:768px){
-    /* Scrollable table wrappers */
     .ma-root{padding:6px}
     /* Cards full-width on mobile */
-    .split-card{min-width:unset !important;width:100% !important}
+    .split-card{min-width:unset !important;width:100% !important;flex:1 1 100% !important}
     .ingress-card{min-width:unset !important;width:100% !important}
     .luna-card{min-width:unset !important;width:100% !important}
     /* Stack flex grids to single column */
@@ -319,24 +350,36 @@ _CSS = """
     .split-wrap{flex-direction:column !important}
     /* Smaller table font */
     .pulse-table,.heatmap-tbl,.natal-tbl,.dp-tbl{font-size:.76rem}
-    .pulse-table th,.heatmap-tbl th,.natal-tbl th,.dp-tbl th{padding:7px 8px}
-    .pulse-table td,.heatmap-tbl td,.natal-tbl td,.dp-tbl td{padding:7px 8px}
+    .pulse-table th,.heatmap-tbl th,.natal-tbl th,.dp-tbl th{padding:6px 7px}
+    .pulse-table td,.heatmap-tbl td,.natal-tbl td,.dp-tbl td{padding:6px 7px}
     /* Retro banner wraps cleanly */
     .retro-banner{flex-wrap:wrap;gap:6px;padding:8px 10px;font-size:.78rem}
-    /* Watch card narrower padding */
+    /* Watch card */
     .watch-card{padding:12px 14px}
     .watch-card li{font-size:.82rem}
     /* Gauge */
-    .gauge-track{height:20px}
-    .gauge-labels{font-size:.65rem}
+    .gauge-track{height:18px}
+    .gauge-labels{font-size:.63rem}
+    /* Ingress/lunation card padding */
+    .ingress-card{padding:8px 10px}
+    .luna-card{padding:8px 10px}
+    /* Analysis accordion body padding */
+    details.ma-accordion .acc-body{padding:10px 12px}
   }
   /* ── Compact SI chart on very small screens ──────────────────────── */
   @media(max-width:600px){
-    .si-cell{min-height:52px;padding:3px}
-    .p-badge{font-size:.6rem;padding:1px 5px}
-    .si-sign{font-size:.5rem}
-    /* Chart title inside centre cell */
+    .si-cell{min-height:44px;padding:2px 3px}
+    .p-badge{font-size:.58rem;padding:1px 4px}
+    .si-sign{font-size:.48rem}
+    .si-asc{font-size:.5rem;padding:1px 3px}
     .si-centre{padding:4px}
+  }
+  /* ── Extra-small screens (≤380px) ───────────────────────────────── */
+  @media(max-width:380px){
+    .ma-root{padding:4px;border-radius:6px}
+    .ma-card{padding:10px 12px}
+    .watch-card{padding:10px 12px}
+    .p-badge{font-size:.55rem;padding:1px 3px}
   }
 </style>
 """
@@ -475,12 +518,12 @@ def _render_analysis_cards_html(bright_side: str, strategic_risks: str,
     H4 = 'style="margin:0 0 10px;font-size:.95rem;font-weight:700;color:#1e293b !important"'
 
     inner = f"""
-  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">
-    <div style="{CARD_BASE};background:#f0fdf4 !important;border:1px solid #86efac">
+  <div class="split-wrap">
+    <div class="split-card split-green" style="{CARD_BASE};background:#f0fdf4 !important;border:1px solid #86efac">
       <h4 {H4}>🌟 The Bright Side</h4>
       <ul {UL}>{bright_li}</ul>
     </div>
-    <div style="{CARD_BASE};background:#fff1f2 !important;border:1px solid #fca5a5">
+    <div class="split-card split-red" style="{CARD_BASE};background:#fff1f2 !important;border:1px solid #fca5a5">
       <h4 {H4}>⚠️ Strategic Risks</h4>
       <ul {UL}>{risks_li}</ul>
       {tip_html}
@@ -941,9 +984,9 @@ def _render_chart_legend() -> str:
         return (f'<span style="background:{bg} !important;color:#1e293b !important;'
                 f'padding:1px 6px;border-radius:4px;border:1px solid {border}">{text}</span>')
     return (
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:.72rem;'
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:.72rem;'
         'color:#1e293b !important;align-items:center;background:#f8fafc !important;'
-        'border-radius:8px;padding:8px 12px">'
+        'border-radius:8px;padding:8px 10px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
         '<strong style="color:#1e293b !important">Legend:</strong>'
         f'<span style="color:#1e293b !important">🟢 {_pill("#f0fdf4","#86efac","Benefic — Growth/Economy")}</span>'
         f'<span style="color:#1e293b !important">🔴 {_pill("#fff1f2","#fca5a5","Malefic — Risk/Conflict")}</span>'
@@ -1447,7 +1490,7 @@ def visual_astro_charts(dt_input, country):
 # ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
+with gr.Blocks(title="Mundane Astrology Dashboard", css=_GRADIO_CSS) as demo:
 
     gr.Markdown(
         "# 🪐 Mundane Astrology Dashboard\n"
@@ -1456,7 +1499,7 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
     )
 
     # Shared inputs
-    with gr.Row():
+    with gr.Row(elem_classes=["top-inputs-row"]):
         date_input = gr.DateTime(
             label="Transit Date & Time (UTC)",
             value=datetime.datetime.utcnow(),
@@ -1528,12 +1571,12 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
             country_dd5 = gr.Dropdown(
                 choices=COUNTRIES, value="India", label="Select Country"
             )
-            # Row 1: both charts side by side
-            with gr.Row():
+            # Row 1: both charts side by side (stacks vertically on mobile)
+            with gr.Row(elem_classes=["charts-row"]):
                 natal_chart_out   = gr.HTML(label="📜 National Natal Chart (Fixed)")
                 transit_chart_out = gr.HTML(label="🌐 Live Transit Chart (Gocharam)")
-            # Row 2: transit chart beside Quick Summary Pulse
-            with gr.Row():
+            # Row 2: Quick Summary Pulse + Daily Pulse (stacks vertically on mobile)
+            with gr.Row(elem_classes=["pulse-row"]):
                 with gr.Column(scale=3):
                     quick_pulse_out = gr.HTML(label="⚡ Quick Summary Pulse")
                 with gr.Column(scale=2):
@@ -1588,5 +1631,4 @@ if __name__ == "__main__":
         server_port=7860,
         show_error=True,
         theme=gr.themes.Soft(),
-        css=_GRADIO_CSS,
     )
