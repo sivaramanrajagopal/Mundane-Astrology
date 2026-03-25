@@ -2040,6 +2040,40 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
         outputs=[dasha_out],
     )
 
+    # ── Auto-load on page open ─────────────────────────────────────────────
+    # Pre-populate every tab so users see content immediately without
+    # having to click "Calculate Transits" first.
+    demo.load(
+        fn=dasha_timeline,
+        inputs=[date_input, country_dd6],
+        outputs=[dasha_out],
+    )
+    demo.load(
+        fn=visual_astro_charts,
+        inputs=[date_input, country_dd5],
+        outputs=[natal_chart_out, transit_chart_out, quick_pulse_out, daily_pulse_out],
+    )
+    demo.load(
+        fn=regional_analysis,
+        inputs=[date_input, country_dd],
+        outputs=[gauge_out, pulse_out, analysis_out, natal_out],
+    )
+    demo.load(
+        fn=run_calculations,
+        inputs=[date_input],
+        outputs=[heatmap_html_out, raw_ephe_out],
+    )
+    demo.load(
+        fn=weekly_watch,
+        inputs=[date_input],
+        outputs=[retro_html_out, ingress_html_out, lunation_html_out, watch_html_out],
+    )
+    demo.load(
+        fn=mundane_analysis,
+        inputs=[date_input, country_dd2],
+        outputs=[mundane_html_out, raw_ephe_out2],
+    )
+
 
 if __name__ == "__main__":
     demo.launch(
