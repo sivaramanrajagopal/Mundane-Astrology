@@ -1264,7 +1264,37 @@ def _render_dasha_timeline_html(dasha_info: dict, house_pos: dict,
   <span style="margin-left:10px;font-size:.75rem;color:#64748b !important">{notes}</span>
 </div>"""
 
-    # ── Mahadasha card ───────────────────────────────────────────────────────
+    # ── Mahadasha progress bar ───────────────────────────────────────────────
+    md_elapsed = round(md["years"] - float(md["remaining"]), 2)
+    md_pct     = max(2, min(100, int(md_elapsed / md["years"] * 100))) if md["years"] else 0
+
+    # ── Bhukti progress bar ───────────────────────────────────────────────────
+    try:
+        import datetime as _dt_mod
+        _bhs = _dt_mod.datetime.strptime(bh["start"].strip(), "%b %Y")
+        _bhe = _dt_mod.datetime.strptime(bh["end"].strip(),   "%b %Y")
+        bh_total_m = (_bhe.year - _bhs.year) * 12 + (_bhe.month - _bhs.month)
+    except Exception:
+        bh_total_m = 0
+    bh_elapsed_m = max(0, bh_total_m - float(bh["remaining_months"]))
+    bh_pct = max(2, min(100, int(bh_elapsed_m / bh_total_m * 100))) if bh_total_m else 0
+
+    def _prog_bar(pct: int, filled_color: str, track_color: str = "#e2e8f0") -> str:
+        """Inline HTML progress bar — no CSS class dependency."""
+        return (
+            f'<div style="margin-top:10px">'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'font-size:.68rem;color:#64748b !important;margin-bottom:3px">'
+            f'<span style="color:#64748b !important">Elapsed</span>'
+            f'<span style="color:#64748b !important">{pct}%</span>'
+            f'</div>'
+            f'<div style="background:{track_color};border-radius:99px;height:8px;overflow:hidden">'
+            f'<div style="background:{filled_color};width:{pct}%;height:100%;'
+            f'border-radius:99px;transition:width .4s ease"></div>'
+            f'</div>'
+            f'</div>'
+        )
+
     md_col  = _PLANET_COLOR_DASHA.get(md["planet"], "#475569")
     md_emj  = _dasha_planet_emoji(md["planet"])
     md_card = f"""
@@ -1275,6 +1305,7 @@ def _render_dasha_timeline_html(dasha_info: dict, house_pos: dict,
   <div class="dasha-meta" style="color:#64748b !important">
     {md["start"]} → {md["end"]} &nbsp;·&nbsp; {md["years"]} yrs total
   </div>
+  {_prog_bar(md_pct, md_col, "#1e293b")}
   <div class="dasha-remaining" style="background:#334155;color:#fbbf24 !important">
     ⏳ {md["remaining"]} yrs remaining
   </div>
@@ -1291,6 +1322,7 @@ def _render_dasha_timeline_html(dasha_info: dict, house_pos: dict,
   <div class="dasha-meta" style="color:#64748b !important">
     {bh["start"]} → {bh["end"]}
   </div>
+  {_prog_bar(bh_pct, bh_col, "#dbeafe")}
   <div class="dasha-remaining" style="background:#dbeafe;color:#1e40af !important">
     ⏳ {bh["remaining_months"]} months remaining
   </div>
@@ -1643,6 +1675,7 @@ def _render_quick_pulse(house_pos: dict, transit_data: dict, country: str) -> st
     jup_h   = house_pos.get("Jupiter", 0)
     ven_h   = house_pos.get("Venus", 0)
     sun_h   = house_pos.get("Sun", 0)
+    moon_h  = house_pos.get("Moon", 0)
     merc_td = transit_data.get("Mercury", {})
     rahu_td = transit_data.get("Rahu", {})
     merc_retro = merc_td.get("retrograde", False)
@@ -1718,6 +1751,39 @@ def _render_quick_pulse(house_pos: dict, transit_data: dict, country: str) -> st
     else:
         rows_data.append(("🚀", "Tech & Innovation", "#94a3b8", "Standard Cycle",
                           "Mercury not in Air sign — incremental, not breakthrough, progress"))
+
+    # ── Public Mood (Moon's house) ─────────────────────────────────────────
+    _MOON_MOOD = {
+        1:  ("#22c55e", "Nationalist Sentiment",
+             "Moon in H1 — strong national identity, public rallying mood"),
+        2:  ("#22c55e", "Wealth & Family Focus",
+             "Moon in H2 — public attention on savings, food security, family values"),
+        3:  ("#94a3b8", "Media Restlessness",
+             "Moon in H3 — high social media activity, rumors, short-distance travel up"),
+        4:  ("#22c55e", "Domestic Comfort",
+             "Moon in H4 — public focus on homeland, agriculture, housing security"),
+        5:  ("#22c55e", "Optimistic Speculation",
+             "Moon in H5 — creative boom, entertainment surge, risk appetite elevated"),
+        6:  ("#eab308", "Health & Labor Unrest",
+             "Moon in H6 — public anxiety around health, workers' concerns, service disruptions"),
+        7:  ("#94a3b8", "Diplomatic Attention",
+             "Moon in H7 — public focus on foreign affairs, partnerships, bilateral events"),
+        8:  ("#ef4444", "Public Anxiety",
+             "Moon in H8 — sudden mood shifts, hidden fears, anticipation of abrupt change"),
+        9:  ("#22c55e", "Faith & Optimism",
+             "Moon in H9 — religious/philosophical mood, long-distance travel sentiment up"),
+        10: ("#eab308", "Leadership Scrutiny",
+             "Moon in H10 — public eye on government, policy debates, leadership accountability"),
+        11: ("#22c55e", "Social Solidarity",
+             "Moon in H11 — community cohesion, social movements, collective aspirations"),
+        12: ("#94a3b8", "Introspective Withdrawal",
+             "Moon in H12 — spiritual mood, foreign cultural influence, hidden activities"),
+    }
+    if moon_h in _MOON_MOOD:
+        m_color, m_status, m_why = _MOON_MOOD[moon_h]
+    else:
+        m_color, m_status, m_why = "#94a3b8", "Undefined", "Moon house not calculable for this chart"
+    rows_data.append(("🌙", "Public Mood", m_color, m_status, m_why))
 
     # ── Hidden Risks (H6/H8/H12) ──────────────────────────────────────────
     risk_active = [(p, h) for p, h in house_pos.items() if p in _CRISIS_SET and h in {6, 8, 12}]

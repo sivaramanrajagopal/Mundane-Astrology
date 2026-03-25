@@ -4,10 +4,19 @@ Wraps the Ashtavargam transit_calculator for country-level (mundane) analysis.
 """
 
 import datetime
+import os
 import swisseph as swe
 import pytz
 
 from calculators.transit_calculator import get_planet_positions, RASIS_ENGLISH, RASIS
+
+# ── Swiss Ephemeris path ───────────────────────────────────────────────────────
+# In Docker (HF Spaces) the .se1 files are downloaded to /app/ephe at build time.
+# Locally, falls back gracefully to Moshier if the directory doesn't exist.
+# Override with SWE_EPHE_PATH env var if needed.
+_EPHE_PATH = os.environ.get("SWE_EPHE_PATH", "/app/ephe")
+if os.path.isdir(_EPHE_PATH):
+    swe.set_ephe_path(_EPHE_PATH)
 
 # ---------------------------------------------------------------------------
 # Country natal Lagnas — 0-based index into RASIS_ENGLISH (Aries=0…Pisces=11)
