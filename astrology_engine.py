@@ -11,12 +11,28 @@ import pytz
 from calculators.transit_calculator import get_planet_positions, RASIS_ENGLISH, RASIS
 
 # ── Swiss Ephemeris path ───────────────────────────────────────────────────────
-# In Docker (HF Spaces) the .se1 files are downloaded to /app/ephe at build time.
-# Locally, falls back gracefully to Moshier if the directory doesn't exist.
-# Override with SWE_EPHE_PATH env var if needed.
-_EPHE_PATH = os.environ.get("SWE_EPHE_PATH", "/app/ephe")
-if os.path.isdir(_EPHE_PATH):
-    swe.set_ephe_path(_EPHE_PATH)
+# Priority order:
+#  1. SWE_EPHE_PATH env var (explicit override)
+#  2. /app/ephe  — Docker / HF Spaces (files downloaded at build time)
+#  3. JH local   — Jagannatha Hora files already on this Mac via CrossOver
+#  4. node ephe  — swisseph npm package in sibling project
+# Falls back to Moshier if none found (still works, ~1-2 arcmin less precise).
+_EPHE_CANDIDATES = [
+    os.environ.get("SWE_EPHE_PATH", ""),
+    "/app/ephe",
+    os.path.expanduser(
+        "~/Library/Application Support/CrossOver/Bottles/JH"
+        "/drive_c/Program Files (x86)/Jagannatha Hora/jhcore/ephe"
+    ),
+    os.path.expanduser(
+        "~/Documents/Astrology-Projects/Basic-AI-Astro"
+        "/ai-astro-app/node_modules/swisseph/ephe"
+    ),
+]
+for _p in _EPHE_CANDIDATES:
+    if _p and os.path.isdir(_p):
+        swe.set_ephe_path(_p)
+        break
 
 # ---------------------------------------------------------------------------
 # Country natal Lagnas — 0-based index into RASIS_ENGLISH (Aries=0…Pisces=11)
