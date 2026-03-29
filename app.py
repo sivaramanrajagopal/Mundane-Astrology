@@ -64,9 +64,24 @@ body, html { background: #0b0f19 !important; overflow-x: hidden; max-width: 100v
   max-width: 100% !important;
 }
 
-/* ── Tab navigation ──────────────────────────────────────────────────── */
-.tab-nav button { color: #94a3b8 !important; background: transparent !important; }
-.tab-nav button.selected { color: #f8fafc !important; border-bottom: 2px solid #7c3aed !important; }
+/* ── Tab navigation — always scrollable so 7+ tabs never clip ────────── */
+.tab-nav, div[role="tablist"] {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap !important;
+  scrollbar-width: none;
+}
+.tab-nav::-webkit-scrollbar, div[role="tablist"]::-webkit-scrollbar { display: none; }
+.tab-nav button, div[role="tablist"] button {
+  color: #94a3b8 !important;
+  background: transparent !important;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tab-nav button.selected, div[role="tablist"] button[aria-selected="true"] {
+  color: #f8fafc !important;
+  border-bottom: 2px solid #7c3aed !important;
+}
 
 /* ── Form labels ─────────────────────────────────────────────────────── */
 label > span, .label-wrap > span, .block > label,
@@ -2083,7 +2098,9 @@ def run_protection_analysis(dob: str, tob: str, lat, lon):
 # ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
+with gr.Blocks(title="Mundane Astrology Dashboard",
+               theme=gr.themes.Soft(),
+               css=_GRADIO_CSS) as demo:
 
     gr.Markdown(
         "# 🪐 Mundane Astrology Dashboard\n"
@@ -2323,6 +2340,4 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=7860,
         show_error=True,
-        theme=gr.themes.Soft(),
-        css=_GRADIO_CSS,
     )
