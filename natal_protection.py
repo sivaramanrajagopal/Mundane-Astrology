@@ -468,8 +468,8 @@ class AstrologyProtection:
                 "is_node":        True,
             }
 
-        # Ascendant has no meaningful transit equivalent (changes every ~2h)
-        result["Ascendant"] = None
+        # Ascendant is NOT included in transit — it changes every ~2 h and
+        # has no meaningful comparison with a natal Lagna over time.
 
         return result
 
@@ -569,8 +569,11 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
 
     lines += ["", "## Live Transit Positions (today):"]
     for planet, data in transit.items():
+        if data is None:          # e.g. Ascendant has no transit equivalent
+            continue
         flags = []
-        if planet != "Sun":
+        is_node = data.get("is_node", False)
+        if planet != "Sun" and not is_node:
             if data["combust"]["deep"]:
                 flags.append(f"DEEP COMBUST ({data['combust']['orb']:.1f}°)")
             elif data["combust"]["combust"]:
@@ -580,8 +583,8 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
         flag_str = ", ".join(flags) if flags else "Clear"
         nak_str  = f"{data.get('nakshatra','?')} Pada {data.get('pada','?')} (lord: {data.get('nakshatra_lord','?')})"
         lines.append(
-            f"  {planet}: {data['sign']} [{data['state']}] "
-            f"{'℞' if data['retrograde'] else ''} "
+            f"  {planet}: {data['sign']} [{data.get('state','—')}] "
+            f"{'℞' if data.get('retrograde') else ''} "
             f"| Nakshatra: {nak_str} — {flag_str}"
         )
 
@@ -623,8 +626,9 @@ def _build_fallback_analysis(natal: dict, transit: dict, score: int) -> str:
 
     lines += ["\n## Live Transit Alerts\n"]
     transit_combust = [p for p, d in transit.items()
-                       if p != "Sun" and d["combust"]["combust"]]
-    transit_gandanta = [p for p, d in transit.items() if d["gandanta"]["gandanta"]]
+                       if d and p != "Sun" and not d.get("is_node") and d["combust"]["combust"]]
+    transit_gandanta = [p for p, d in transit.items()
+                        if d and d["gandanta"]["gandanta"]]
     if transit_combust:
         lines.append(f"- Transit planets currently combust: {', '.join(transit_combust)}")
     if transit_gandanta:
