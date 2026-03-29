@@ -540,6 +540,76 @@ def scan_transit_affliction(planet_name: str,
         }
 
 
+def scan_pushkara_transit(planet_name: str,
+                           reference_dt: datetime.datetime = None,
+                           days_ahead: int = 180) -> dict:
+    """
+    Scan the next `days_ahead` days to find when a transiting planet
+    enters or exits a Pushkara Navamsa zone.
+
+    Scans day by day — ~180 SWE calls per planet, runs in < 3 ms.
+
+    Returns:
+        currently_pushkara (bool)
+        current_zone       (str)   zone label if currently in Pushkara
+        exits_in_days      (int|None)  None = persists beyond scan horizon
+        next_entry_days    (int|None)
+        next_entry_date    (str|None)
+        next_entry_zone    (str|None)
+    """
+    if reference_dt is None:
+        reference_dt = datetime.datetime.utcnow()
+
+    ref_jd = swe.julday(reference_dt.year, reference_dt.month, reference_dt.day,
+                         reference_dt.hour + reference_dt.minute / 60.0)
+
+    def _lon_at(jd: float) -> float:
+        if planet_name == "Rahu":
+            return swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)[0][0]
+        elif planet_name == "Ketu":
+            return (swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)[0][0] + 180.0) % 360.0
+        else:
+            pid = _PLANET_IDS.get(planet_name)
+            if pid is None:
+                return 0.0
+            return swe.calc_ut(jd, pid, _FLAGS)[0][0]
+
+    def _pk_at(jd: float) -> dict:
+        return check_pushkara(_lon_at(jd) % 360)
+
+    current       = _pk_at(ref_jd)
+    currently_in  = current.get("pushkara", False)
+
+    exits_in_days = None
+    next_entry_days = next_entry_date = next_entry_zone = None
+
+    if currently_in:
+        for d in range(1, days_ahead + 1):
+            if not _pk_at(ref_jd + d).get("pushkara"):
+                exits_in_days = d
+                break
+        scan_from = (exits_in_days + 1) if exits_in_days is not None else days_ahead + 1
+    else:
+        scan_from = 1
+
+    for d in range(scan_from, days_ahead + 1):
+        p = _pk_at(ref_jd + d)
+        if p.get("pushkara"):
+            next_entry_days = d
+            next_entry_date = (reference_dt + datetime.timedelta(days=d)).strftime("%Y-%m-%d")
+            next_entry_zone = p.get("zone", "")
+            break
+
+    return {
+        "currently_pushkara": currently_in,
+        "current_zone":        current.get("zone", "") if currently_in else "",
+        "exits_in_days":       exits_in_days,
+        "next_entry_days":     next_entry_days,
+        "next_entry_date":     next_entry_date,
+        "next_entry_zone":     next_entry_zone,
+    }
+
+
 # ── Geocoding & timezone helpers ─────────────────────────────────────────────
 
 def geocode_place(place_name: str):
@@ -1053,6 +1123,15 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
         "the native should use right now based on transit + natal interaction. "
         "For example: 'Venus is emerging from combustion in transit — "
         "this is a 15-day window to finalize financial decisions or luxury purchases.'",
+        "4. For every planet flagged 🕉️ DIVINE PROTECTION or 🕉️ Pushkara Navamsa "
+        "(natal or transit): dedicate 1-2 sentences to the Pushkara effect. "
+        "Structure it as: (a) acknowledge the surface struggle "
+        "(e.g. 'Though [planet] is burnt by the Sun in House N, affecting [domain]...'), "
+        "then (b) describe the Pushkara recovery "
+        "(e.g. '...its Pushkara Navamsa position means initial [domain] losses will be "
+        "unexpectedly restored — divine grace intervenes after the initial setback.'). "
+        "Use the native's house numbers to name the life domain. "
+        "Never skip this step if Pushkara is flagged.",
         "Keep each section to 3-5 concise bullet points. Use plain, empathetic language.",
     ]
     return "\n".join(lines)

@@ -50,6 +50,7 @@ from natal_protection import (
     calculate_vimshottari_dasha,
     get_current_dasha_bhukti,
     scan_transit_affliction,
+    scan_pushkara_transit,
     VIMSHOTTARI_YEARS,
     check_pushkara,
 )
@@ -2005,8 +2006,15 @@ def _protection_score_html(score: int) -> str:
 
 
 _REFERENCE_HTML = """
-<div style="margin-top:14px;background:#0f172a;border:1px solid #2d3748;
-            border-radius:8px;padding:14px 16px;font-size:0.82rem;color:#cbd5e0">
+<details style="margin-top:14px" class="ma-accordion">
+<summary style="background:#1a2535;border:1px solid #2d3748;border-radius:8px;
+                padding:10px 14px;color:#a0aec0;font-size:0.82rem;cursor:pointer;
+                list-style:none;display:flex;justify-content:space-between;align-items:center">
+  <span>📖 Reference: Combustion Orbs · Gandanta Zones · Pushkara Navamsa</span>
+  <span style="font-size:0.74rem;color:#718096">click to expand</span>
+</summary>
+<div style="background:#0f172a;border:1px solid #2d3748;border-top:none;
+            border-radius:0 0 8px 8px;padding:14px 16px;font-size:0.82rem;color:#cbd5e0">
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
 
@@ -2165,6 +2173,7 @@ _REFERENCE_HTML = """
   </div>
 
 </div>
+</details>
 """
 
 
@@ -2737,17 +2746,116 @@ def _dasha_panel_html(db: dict, natal_data: dict,
     return html
 
 
+_PK_SCAN_PLANETS = [
+    "Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"
+]
+
+
+def _pushkara_forecast_card_html(scans: dict, ref_date_str: str = "") -> str:
+    """
+    Render upcoming Pushkara Navamsa transit card.
+    scans: {planet_name: scan_pushkara_transit result dict}
+    """
+    if not scans:
+        return ""
+
+    now_in   = [(p, s) for p, s in scans.items() if s.get("currently_pushkara")]
+    upcoming = [(p, s) for p, s in scans.items()
+                if not s.get("currently_pushkara") and s.get("next_entry_days") is not None]
+    upcoming.sort(key=lambda x: x[1]["next_entry_days"])
+
+    if not now_in and not upcoming:
+        return ""
+
+    def _exit_str(s):
+        e = s.get("exits_in_days")
+        return f"exits in ~{e} days" if e is not None else "active beyond 6-month horizon"
+
+    # ── Currently in Pushkara rows ────────────────────────────────────────────
+    now_rows = ""
+    for planet, s in now_in:
+        zone = s.get("current_zone", "")
+        now_rows += f"""
+      <tr style="background:#16202e">
+        <td style="padding:5px 8px">{_PLANET_ICONS.get(planet,'☿')} {planet}</td>
+        <td style="padding:5px 8px;color:#ffd700">{zone}</td>
+        <td style="padding:5px 8px;color:#a0aec0;font-size:0.78rem">{_exit_str(s)}</td>
+      </tr>"""
+
+    # ── Upcoming entries (max 8 rows) ─────────────────────────────────────────
+    up_rows = ""
+    for planet, s in upcoming[:8]:
+        nd   = s["next_entry_days"]
+        ndt  = s["next_entry_date"]
+        zone = s.get("next_entry_zone", "")
+        col  = "#ffd700" if nd <= 30 else ("#90cdf4" if nd <= 60 else "#a0aec0")
+        up_rows += f"""
+      <tr>
+        <td style="padding:5px 8px">{_PLANET_ICONS.get(planet,'☿')} {planet}</td>
+        <td style="padding:5px 8px;color:{col}">{zone}</td>
+        <td style="padding:5px 8px;color:{col};font-weight:600">in {nd} days
+          <br><span style="color:#718096;font-size:0.76rem">~{ndt}</span></td>
+      </tr>"""
+
+    now_section = ""
+    if now_rows:
+        now_section = f"""
+  <div style="font-weight:600;color:#ffd700;margin-bottom:6px">✨ Currently in Pushkara</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+    <thead><tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
+      <th style="text-align:left;padding:3px 8px">Planet</th>
+      <th style="text-align:left;padding:3px 8px">Zone</th>
+      <th style="text-align:left;padding:3px 8px">Status</th>
+    </tr></thead>
+    <tbody>{now_rows}</tbody>
+  </table>"""
+
+    up_section = ""
+    if up_rows:
+        up_section = f"""
+  <div style="font-weight:600;color:#90cdf4;margin-bottom:6px">📅 Upcoming entries (next 6 months)</div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
+      <th style="text-align:left;padding:3px 8px">Planet</th>
+      <th style="text-align:left;padding:3px 8px">Zone</th>
+      <th style="text-align:left;padding:3px 8px">When</th>
+    </tr></thead>
+    <tbody>{up_rows}</tbody>
+  </table>"""
+
+    ref_note = f'<br><span style="color:#718096;font-size:0.76rem">Computed from: {ref_date_str}</span>' if ref_date_str else ""
+
+    return f"""
+<div style="margin-top:16px;background:#0f172a;border:1px solid #2d3748;
+            border-radius:8px;padding:16px;color:#cbd5e0;font-size:0.85rem">
+
+  <div style="font-size:1rem;font-weight:700;color:#ffd700;margin-bottom:4px">
+    🕉️ Pushkara Navamsa — Transit Forecast
+  </div>
+  <div style="font-size:0.78rem;color:#a0aec0;margin-bottom:12px">
+    When a transiting planet occupies a Pushkara zone its significations receive
+    <b style="color:#ffd700">divine grace</b>. If it is simultaneously afflicted
+    (combust or Gandanta), the <b>Visha Gati is neutralised</b> — initial setbacks
+    are unexpectedly restored.{ref_note}
+  </div>
+  {now_section}
+  {up_section}
+
+</div>
+"""
+
+
 def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = None):
     """
     Tab 7 main compute function.
-    Returns (score_html, table_html, dasha_html, ai_markdown).
+    Returns (score_html, table_html, dasha_html, ai_markdown, pushkara_html).
     """
-    _blank4 = ("", "", "", "")
+    _blank5 = ("", "", "", "", "")
     try:
         # ── Input validation ───────────────────────────────────────────────
         if not dob or not tob:
             msg = "⚠️ Please enter Date of Birth and Time of Birth."
-            return msg, msg, msg, msg
+            return msg, msg, msg, msg, ""
         dob = str(dob).strip()
         tob = str(tob).strip()
         try:
@@ -2758,10 +2866,10 @@ def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = No
                 "- Date must be **YYYY-MM-DD** (e.g. `1978-09-18`)  \n"
                 "- Time must be **HH:MM** in 24-hour format (e.g. `17:35`)"
             )
-            return err, err, err, err
+            return err, err, err, err, ""
         if lat is None or lon is None:
             msg2 = "⚠️ Click 'Resolve Location' or enter Latitude/Longitude manually."
-            return "⚠️ Location required.", msg2, "", ""
+            return "⚠️ Location required.", msg2, "", "", ""
 
         # Resolve transit date (default today)
         td_str = (transit_date or "").strip() or datetime.datetime.utcnow().strftime("%Y-%m-%d")
@@ -2799,13 +2907,18 @@ def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = No
                 '</div>'
             )
 
+        # ── Pushkara transit forecast ──────────────────────────────────────
+        pk_scans = {p: scan_pushkara_transit(p, now_utc, days_ahead=180)
+                    for p in _PK_SCAN_PLANETS}
+        pushkara_html = _pushkara_forecast_card_html(pk_scans, td_str)
+
         ai_text = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)
-        return score_html, table_html, dasha_html, ai_text
+        return score_html, table_html, dasha_html, ai_text, pushkara_html
 
     except Exception as exc:
         import traceback
         err = f"⚠️ Error: {exc}"
-        return err, err, "", err
+        return err, err, "", err, ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2959,7 +3072,8 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
                     np_table_out = gr.HTML(label="Natal vs Transit Comparison")
                     gr.HTML(_REFERENCE_HTML)
 
-            np_dasha_out = gr.HTML()
+            np_dasha_out    = gr.HTML()
+            np_pushkara_out = gr.HTML()
             gr.Markdown("### 🤖 AI Analysis")
             np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
 
@@ -3029,7 +3143,7 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
     np_analyse_btn.click(
         fn=run_protection_analysis,
         inputs=[np_dob, np_tob, np_lat, np_lon, np_transit_date],
-        outputs=[np_score_out, np_table_out, np_dasha_out, np_ai_out],
+        outputs=[np_score_out, np_table_out, np_dasha_out, np_ai_out, np_pushkara_out],
     )
 
     # ── Auto-load on page open ─────────────────────────────────────────────
