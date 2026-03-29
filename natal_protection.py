@@ -577,14 +577,29 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
     for planet, data in natal.items():
         flags = []
         if planet != "Sun":
-            if data["combust"]["deep"]:
-                flags.append(f"DEEP COMBUST ({data['combust']['orb']:.1f}°)")
-            elif data["combust"]["combust"]:
-                flags.append(f"Combust ({data['combust']['orb']:.1f}°)")
+            c = data["combust"]
+            is_hidden = (c.get("deep") or c.get("combust")) and data.get("vargottama")
+            if is_hidden:
+                # Combust D1 + Vargottama D9 — the most important combined signal
+                flags.append(
+                    "🌟 HIDDEN STRENGTH — Combust D1 but Vargottama D9: "
+                    "temporary surface struggle, inner D9 protection active; "
+                    "setback precedes deep success"
+                )
+            else:
+                if c.get("deep"):
+                    flags.append(f"DEEP COMBUST ({c['orb']:.1f}°)")
+                elif c.get("combust"):
+                    flags.append(f"Combust ({c['orb']:.1f}°)")
+                if data.get("vargottama"):
+                    flags.append("Vargottama ✨")
         if data["gandanta"]["gandanta"]:
-            flags.append(f"Gandanta ({data['gandanta']['junction']}, {data['gandanta']['orb']:.1f}°)")
-        if data["vargottama"]:
-            flags.append("Vargottama ✨")
+            g = data["gandanta"]
+            g_label = f"Gandanta ({g['junction']}, {g['orb']:.1f}°)"
+            # Note if Gandanta overrides the sign-wall on a cross-sign planet
+            if data["combust"].get("cross_sign") and data["combust"].get("would_combust"):
+                g_label += " [overrides sign-wall]"
+            flags.append(g_label)
         flag_str = ", ".join(flags) if flags else "Clear"
         nak_str  = f"{data.get('nakshatra','?')} Pada {data.get('pada','?')} (lord: {data.get('nakshatra_lord','?')})"
         lines.append(
@@ -635,18 +650,37 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
 def _build_fallback_analysis(natal: dict, transit: dict, score: int) -> str:
     """Rule-based fallback when no OpenAI key is set."""
     lines = ["## Natal Analysis\n"]
-    combust_list = [p for p, d in natal.items()
-                    if p != "Sun" and d["combust"]["combust"]]
-    gandanta_list = [p for p, d in natal.items() if d["gandanta"]["gandanta"]]
-    vargottama_list = [p for p, d in natal.items() if d["vargottama"]]
 
-    if combust_list:
-        lines.append(f"- **Combust planets** (weakened): {', '.join(combust_list)}")
+    # All combust planets (including hidden-strength candidates)
+    all_combust = [p for p, d in natal.items()
+                   if p != "Sun" and d["combust"]["combust"]]
+
+    # Hidden Strength: combust D1 + Vargottama D9 — separate special category
+    hidden_strength_list = [
+        p for p in all_combust
+        if natal[p].get("vargottama")
+    ]
+    # Plain combust (no D9 protection)
+    plain_combust_list = [p for p in all_combust if p not in hidden_strength_list]
+
+    gandanta_list    = [p for p, d in natal.items() if d["gandanta"]["gandanta"]]
+    vargottama_list  = [p for p, d in natal.items()
+                        if d["vargottama"] and p not in hidden_strength_list]
+
+    if hidden_strength_list:
+        lines.append(
+            f"- 🌟 **Hidden Strength** (combust D1 but Vargottama D9 — inner protection active): "
+            f"{', '.join(hidden_strength_list)}. "
+            f"These planets cause visible struggle but carry concealed success in the D9."
+        )
+    if plain_combust_list:
+        lines.append(f"- **Combust planets** (weakened, no D9 relief): {', '.join(plain_combust_list)}")
     if gandanta_list:
-        lines.append(f"- **Gandanta planets** (karmic knots): {', '.join(gandanta_list)}")
+        lines.append(f"- **Gandanta planets** (karmic knots — stability compromised): "
+                     f"{', '.join(gandanta_list)}")
     if vargottama_list:
         lines.append(f"- **Vargottama planets** (amplified strength): {', '.join(vargottama_list)}")
-    if not combust_list and not gandanta_list:
+    if not all_combust and not gandanta_list:
         lines.append("- No major natal afflictions detected. Protection score is solid.")
     lines.append(f"- Overall Protection Score: **{score}/10**")
 

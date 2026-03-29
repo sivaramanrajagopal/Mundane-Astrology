@@ -2127,35 +2127,72 @@ def _comparison_table_html(natal: dict, transit: dict) -> str:
 
     def _flags(data, is_node=False, is_asc=False):
         parts = []
+        c = data.get("combust", {})
+        g = data.get("gandanta", {})
+        _o = c.get("orb", 0)
+
         if not is_node and not is_asc:
-            c = data.get("combust", {})
-            if c.get("deep"):
-                parts.append('<span style="color:#fc8181;font-weight:600">🔥 Deep Combust</span>')
-            elif c.get("combust"):
+            # ── Hidden Strength: combust D1 + Vargottama D9 ──────────────────
+            # A combust planet that is also Vargottama has inner D9 protection.
+            # Surface struggle exists but success is preserved at a deeper level.
+            if (c.get("deep") or c.get("combust")) and data.get("vargottama"):
                 parts.append(
-                    f'<span style="color:#f6ad55">🔥 Combust ({c.get("orb",0):.1f}°)</span>'
+                    '<span style="color:#f6e05e;font-weight:600" '
+                    'title="Combust in D1 (rasi) but Vargottama in D9 (navamsa). '
+                    'Surface struggle exists — inner protection active. '
+                    'Temporary setback followed by deep success.">'
+                    '🌟 Hidden Strength (Combust + Vargottama)</span>'
                 )
-            elif c.get("cross_sign") and c.get("would_combust"):
-                # Within orb distance but in a different sign — classical exception
-                _o = c.get("orb", 0)
-                parts.append(
-                    f'<span style="color:#718096;font-size:0.8rem" '
-                    f'title="Within {_o:.1f} deg orb but Sun is in a different sign — '
-                    f'combustion exception applies">'
-                    f'↔ Near ({_o:.1f}°) cross-sign</span>'
-                )
+            else:
+                # Regular combustion flags
+                if c.get("deep"):
+                    parts.append(
+                        f'<span style="color:#fc8181;font-weight:600">'
+                        f'🔥 Deep Combust ({_o:.1f}°)</span>'
+                    )
+                elif c.get("combust"):
+                    parts.append(
+                        f'<span style="color:#f6ad55">🔥 Combust ({_o:.1f}°)</span>'
+                    )
+                elif c.get("cross_sign") and c.get("would_combust"):
+                    # Within orb but different sign — classical sign-wall exception.
+                    # Suppress entirely when Gandanta is also active:
+                    # Gandanta overrides the sign-wall protection.
+                    if not g.get("gandanta"):
+                        parts.append(
+                            f'<span style="color:#718096;font-size:0.8rem" '
+                            f'title="Within {_o:.1f} deg orb but Sun is in a different sign — '
+                            f'classical sign-wall exception applies">'
+                            f'↔ Near ({_o:.1f}°) cross-sign</span>'
+                        )
         elif is_node:
             parts.append(
                 '<span style="color:#4a5568;font-size:0.78rem">☽☋ No combustion</span>'
             )
-        if data.get("gandanta", {}).get("gandanta"):
-            jct = data["gandanta"].get("junction", "")
-            orb = data["gandanta"].get("orb", 0)
-            parts.append(
-                f'<span style="color:#b794f4">⚡ Gandanta ({jct}, {orb:.1f}°)</span>'
+
+        # ── Gandanta ─────────────────────────────────────────────────────────
+        if g.get("gandanta"):
+            jct  = g.get("junction", "")
+            gorb = g.get("orb", 0)
+            # If this planet was within a combustion orb but shielded by the sign-wall,
+            # Gandanta still fires — make the override explicit.
+            overrides = (
+                not is_node and not is_asc
+                and c.get("cross_sign") and c.get("would_combust")
             )
-        if data.get("vargottama"):
+            label = f"Gandanta ({jct}, {gorb:.1f}°)"
+            if overrides:
+                label += " — overrides sign-wall"
+            parts.append(f'<span style="color:#b794f4">⚡ {label}</span>')
+
+        # ── Vargottama (standalone only — not when merged into Hidden Strength) ──
+        already_merged = (
+            not is_node and not is_asc
+            and (c.get("deep") or c.get("combust")) and data.get("vargottama")
+        )
+        if data.get("vargottama") and not already_merged:
             parts.append('<span style="color:#68d391">✨ Vargottama</span>')
+
         return " ".join(parts) if parts else '<span style="color:#4a5568">—</span>'
 
     _TRANSIT_NONE = (
