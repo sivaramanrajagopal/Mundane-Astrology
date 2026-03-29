@@ -87,23 +87,49 @@ def check_combustion(sun_deg: float, planet_deg: float,
     """
     Check if a planet is combust (too close to the Sun in Vedic terms).
 
+    Classical same-sign exception (BPHS / South Indian tradition):
+      Combustion does NOT apply when the Sun and the planet are in different
+      zodiac signs, even if the degree distance is within the orb.
+      A sign boundary acts as a protective wall.
+
     Returns:
-        combust (bool): within combustion orb
-        deep    (bool): within 3° (deep/exact combustion)
-        orb     (float): angular distance to Sun
+        combust      (bool):  True if combust in the same sign
+        deep         (bool):  True if within 3° (deep/exact combustion)
+        orb          (float): angular distance to Sun
+        cross_sign   (bool):  True if in different signs (exception applies)
+        would_combust(bool):  True if orb is within range but cross-sign exempts it
     """
     if planet_name == "Sun":
-        return {"combust": False, "deep": False, "orb": 0.0}
+        return {"combust": False, "deep": False, "orb": 0.0,
+                "cross_sign": False, "would_combust": False}
 
     orb = COMBUSTION_ORB.get(planet_name, 14.0)
     if planet_name == "Mercury" and is_retrograde:
         orb = 12.0
 
     dist = _angular_distance(sun_deg, planet_deg)
+
+    # ── Same-sign exception ───────────────────────────────────────────────────
+    # Combustion is only valid when Sun and planet share the same rasi.
+    sun_sign    = int(sun_deg    / 30) % 12
+    planet_sign = int(planet_deg / 30) % 12
+    cross_sign  = (sun_sign != planet_sign)
+
+    if cross_sign:
+        return {
+            "combust":       False,           # exception: different sign
+            "deep":          False,
+            "orb":           round(dist, 2),
+            "cross_sign":    True,
+            "would_combust": dist <= orb,     # informational: would be combust same-sign
+        }
+
     return {
-        "combust": dist <= orb,
-        "deep":    dist <= 3.0,
-        "orb":     round(dist, 2),
+        "combust":       dist <= orb,
+        "deep":          dist <= 3.0,
+        "orb":           round(dist, 2),
+        "cross_sign":    False,
+        "would_combust": False,
     }
 
 

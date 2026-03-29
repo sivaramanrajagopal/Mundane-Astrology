@@ -1999,6 +1999,111 @@ def _protection_score_html(score: int) -> str:
     )
 
 
+_REFERENCE_HTML = """
+<div style="margin-top:14px;background:#0f172a;border:1px solid #2d3748;
+            border-radius:8px;padding:14px 16px;font-size:0.82rem;color:#cbd5e0">
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+
+    <!-- Combustion orbs -->
+    <div>
+      <div style="font-weight:700;color:#f6ad55;margin-bottom:8px">
+        🔥 Combustion Orbs — same sign only
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
+            <th style="text-align:left;padding:2px 6px">Planet</th>
+            <th style="padding:2px 6px">Orb</th>
+            <th style="padding:2px 6px">Deep (&lt;3°)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:3px 6px">☀️ Sun</td>
+              <td style="text-align:center;padding:3px 6px;color:#718096">N/A</td>
+              <td style="text-align:center;padding:3px 6px;color:#718096">—</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">🌙 Moon</td>
+              <td style="text-align:center;padding:3px 6px">12°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr><td style="padding:3px 6px">♂️ Mars</td>
+              <td style="text-align:center;padding:3px 6px">17°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">☿ Mercury</td>
+              <td style="text-align:center;padding:3px 6px">14° / 12°℞</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr><td style="padding:3px 6px">♃ Jupiter</td>
+              <td style="text-align:center;padding:3px 6px">11°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">♀️ Venus</td>
+              <td style="text-align:center;padding:3px 6px">10°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr><td style="padding:3px 6px">♄ Saturn</td>
+              <td style="text-align:center;padding:3px 6px">15°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">☊☋ Rahu/Ketu</td>
+              <td style="text-align:center;padding:3px 6px;color:#718096" colspan="2">
+                Shadow — not applicable</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:8px;padding:6px 8px;background:#1a2535;
+                  border-left:3px solid #f6ad55;border-radius:4px;font-size:0.78rem;color:#a0aec0">
+        <b style="color:#f6ad55">⚠️ Same-sign exception:</b> Combustion is only valid when
+        Sun &amp; planet are in the <b>same rasi</b>. If they are in different signs the orb
+        is shown as <span style="color:#718096">↔ Near (cross-sign)</span> — informational only,
+        not a penalty.
+      </div>
+    </div>
+
+    <!-- Gandanta zones -->
+    <div>
+      <div style="font-weight:700;color:#b794f4;margin-bottom:8px">
+        ⚡ Gandanta Zones — ±3°20' at Water→Fire junctions
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
+            <th style="text-align:left;padding:2px 6px">Junction</th>
+            <th style="padding:2px 6px">Water end</th>
+            <th style="padding:2px 6px">Fire start</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background:#16202e">
+            <td style="padding:4px 6px">Pisces → Aries</td>
+            <td style="text-align:center;padding:4px 6px">356°40'<br>
+              <span style="color:#718096;font-size:0.74rem">(26°40' Pisces)</span></td>
+            <td style="text-align:center;padding:4px 6px">3°20'<br>
+              <span style="color:#718096;font-size:0.74rem">(3°20' Aries)</span></td>
+          </tr>
+          <tr>
+            <td style="padding:4px 6px">Cancer → Leo</td>
+            <td style="text-align:center;padding:4px 6px">116°40'<br>
+              <span style="color:#718096;font-size:0.74rem">(26°40' Cancer)</span></td>
+            <td style="text-align:center;padding:4px 6px">123°20'<br>
+              <span style="color:#718096;font-size:0.74rem">(3°20' Leo)</span></td>
+          </tr>
+          <tr style="background:#16202e">
+            <td style="padding:4px 6px">Scorpio → Sagittarius</td>
+            <td style="text-align:center;padding:4px 6px">236°40'<br>
+              <span style="color:#718096;font-size:0.74rem">(26°40' Scorpio)</span></td>
+            <td style="text-align:center;padding:4px 6px">243°20'<br>
+              <span style="color:#718096;font-size:0.74rem">(3°20' Sagittarius)</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:8px;padding:6px 8px;background:#1a1a35;
+                  border-left:3px solid #b794f4;border-radius:4px;font-size:0.78rem;color:#a0aec0">
+        <b style="color:#b794f4">Note:</b> The last 3°20' of each Water sign (Cancer, Scorpio,
+        Pisces) and the first 3°20' of the following Fire sign (Leo, Sagittarius, Aries)
+        form the Gandanta zone. Nodes at Gandanta carry especially intense karmic weight.
+      </div>
+    </div>
+
+  </div>
+</div>
+"""
+
+
 _PLANET_ICONS = {
     "Ascendant": "⬆️", "Sun": "☀️", "Moon": "🌙", "Mars": "♂️",
     "Mercury": "☿", "Jupiter": "♃", "Venus": "♀️", "Saturn": "♄",
@@ -2027,12 +2132,28 @@ def _comparison_table_html(natal: dict, transit: dict) -> str:
             if c.get("deep"):
                 parts.append('<span style="color:#fc8181;font-weight:600">🔥 Deep Combust</span>')
             elif c.get("combust"):
-                parts.append('<span style="color:#f6ad55">🔥 Combust</span>')
+                parts.append(
+                    f'<span style="color:#f6ad55">🔥 Combust ({c.get("orb",0):.1f}°)</span>'
+                )
+            elif c.get("cross_sign") and c.get("would_combust"):
+                # Within orb distance but in a different sign — classical exception
+                _o = c.get("orb", 0)
+                parts.append(
+                    f'<span style="color:#718096;font-size:0.8rem" '
+                    f'title="Within {_o:.1f} deg orb but Sun is in a different sign — '
+                    f'combustion exception applies">'
+                    f'↔ Near ({_o:.1f}°) cross-sign</span>'
+                )
         elif is_node:
-            parts.append('<span style="color:#718096;font-size:0.78rem">☽☋ No combustion</span>')
+            parts.append(
+                '<span style="color:#4a5568;font-size:0.78rem">☽☋ No combustion</span>'
+            )
         if data.get("gandanta", {}).get("gandanta"):
             jct = data["gandanta"].get("junction", "")
-            parts.append(f'<span style="color:#b794f4">⚡ Gandanta ({jct})</span>')
+            orb = data["gandanta"].get("orb", 0)
+            parts.append(
+                f'<span style="color:#b794f4">⚡ Gandanta ({jct}, {orb:.1f}°)</span>'
+            )
         if data.get("vargottama"):
             parts.append('<span style="color:#68d391">✨ Vargottama</span>')
         return " ".join(parts) if parts else '<span style="color:#4a5568">—</span>'
@@ -2404,6 +2525,7 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
                 with gr.Column(scale=2):
                     np_score_out = gr.HTML(label="Protection Score")
                     np_table_out = gr.HTML(label="Natal vs Transit Comparison")
+                    gr.HTML(_REFERENCE_HTML)
 
             gr.Markdown("### 🤖 AI Analysis")
             np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
