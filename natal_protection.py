@@ -830,10 +830,21 @@ class AstrologyProtection:
 def _build_protection_prompt(natal: dict, transit: dict, score: int,
                               birth_date: str, birth_time: str,
                               lat: float, lon: float) -> str:
+    # ── Pre-compute ascendant sign index for house numbering ─────────────────
+    asc_si = natal.get("Ascendant", {}).get("sign_index", 0)
+    asc_sign = natal.get("Ascendant", {}).get("sign", "Unknown")
+
+    def _house_num(sign_index: int) -> int:
+        """Return Vedic house number (1–12) relative to the ascendant sign."""
+        return (sign_index - asc_si) % 12 + 1
+
     lines = [
         "Act as a Vedic astrology expert specializing in planetary protection and transit analysis.",
         f"Birth: {birth_date} {birth_time}, lat={lat:.2f}, lon={lon:.2f}",
+        f"Ascendant (Lagna): {asc_sign} — this is the 1st house.",
         f"Overall Protection Score: {score}/10",
+        "IMPORTANT: Use ONLY the house numbers provided below. Do NOT infer or assume "
+        "house placements from sign names.",
         "",
         "## Natal Planet Analysis:",
     ]
@@ -865,8 +876,14 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
             flags.append(g_label)
         flag_str = ", ".join(flags) if flags else "Clear"
         nak_str  = f"{data.get('nakshatra','?')} Pada {data.get('pada','?')} (lord: {data.get('nakshatra_lord','?')})"
+        # Inject exact house number so AI cannot hallucinate placements
+        if planet == "Ascendant":
+            house_tag = " [House 1 — Lagna]"
+        else:
+            h = _house_num(data.get("sign_index", 0))
+            house_tag = f" [House {h}]"
         lines.append(
-            f"  {planet}: {data['sign']} {data['deg_in_sign']:.1f}° "
+            f"  {planet}: {data['sign']} {data['deg_in_sign']:.1f}°{house_tag} "
             f"[{data['state']}] {'℞' if data['retrograde'] else ''} "
             f"| Nakshatra: {nak_str} — {flag_str}"
         )
@@ -897,10 +914,13 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
         "Instructions:",
         "1. Write ## Natal Analysis — explain the natal protection score. "
         "Highlight which planets are weakened (combust/gandanta) and which are empowered (vargottama). "
-        "Explain the life domains affected using Vedic house significations.",
+        "For each planet, reference the [House N] number provided above — do NOT infer or guess "
+        "house positions from sign names. Explain the life domains those specific houses signify.",
         "2. Write ## Live Transit Alerts — identify where current transits are "
         "triggering or releasing natal weak points. Flag any transit planet "
-        "just exiting combustion (Udayam/rising window) as an ACTION opportunity.",
+        "just exiting combustion (Udayam/rising window) as an ACTION opportunity. "
+        "Be consistent: if a planet is described as currently combust, do NOT also say it recently "
+        "exited combustion in the same analysis.",
         "3. Write ## Action Windows — give 2-3 specific, practical action windows "
         "the native should use right now based on transit + natal interaction. "
         "For example: 'Venus is emerging from combustion in transit — "
