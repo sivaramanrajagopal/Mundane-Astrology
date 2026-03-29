@@ -62,6 +62,17 @@ _GANDANTA_ORB = 10.0 / 3.0   # 3°20' = 3.333°
 _NAK_SPAN  = 360.0 / 27       # 13.333...° per nakshatra
 _PADA_SPAN = _NAK_SPAN / 4    # 3.333...°  per pada (quarter)
 
+# ── Vimshottari Dasha constants ───────────────────────────────────────────────
+# Standard 120-year cycle used in South Indian Vedic tradition.
+VIMSHOTTARI_YEARS = {
+    "Ketu": 7, "Venus": 20, "Sun": 6, "Moon": 10, "Mars": 7,
+    "Rahu": 18, "Jupiter": 16, "Saturn": 19, "Mercury": 17,
+}
+_DASHA_SEQUENCE    = ["Ketu", "Venus", "Sun", "Moon", "Mars",
+                      "Rahu", "Jupiter", "Saturn", "Mercury"]
+_TOTAL_DASHA_YEARS = 120      # sum of all dasha years in one cycle
+_DAYS_PER_YEAR     = 365.25   # Julian year (consistent with pyswisseph)
+
 
 def _get_nakshatra_pada(longitude: float) -> tuple:
     """
@@ -221,6 +232,221 @@ ALL_DISPLAY_PLANETS = [
 ]
 
 
+# ── Vimshottari Dasha calculation ────────────────────────────────────────────
+
+def calculate_vimshottari_dasha(moon_longitude: float,
+                                 birth_utc: datetime.datetime) -> list:
+    """
+    Build the full Vimshottari Dasha timeline anchored to birth_utc.
+
+    The Moon's nakshatra lord at birth determines the starting Maha Dasha.
+    The fraction of the nakshatra already traversed tells us how much of
+    that first Dasha had already elapsed at birth (the Dasha may have
+    started before birth).
+
+    Returns a list of 9 dicts — one per Maha Dasha from the TRUE start
+    of the first period through the end of the 120-year cycle:
+        {lord (str), start (datetime), end (datetime), years (float)}
+    """
+    nak_idx    = min(int((moon_longitude % 360) / _NAK_SPAN), 26)
+    start_lord = NAKSHATRA_TO_LORD[NAKSHATRAS[nak_idx]]
+
+    # Fraction of the birth nakshatra already elapsed → dasha fraction elapsed
+    frac_elapsed = (moon_longitude % _NAK_SPAN) / _NAK_SPAN
+    full_years   = VIMSHOTTARI_YEARS[start_lord]
+
+    # The TRUE start of the first Maha Dasha (may be before birth)
+    elapsed_days  = frac_elapsed * full_years * _DAYS_PER_YEAR
+    true_start    = birth_utc - datetime.timedelta(days=elapsed_days)
+
+    start_idx = _DASHA_SEQUENCE.index(start_lord)
+
+    dashas = []
+    cursor = true_start
+    for i in range(9):
+        lord  = _DASHA_SEQUENCE[(start_idx + i) % 9]
+        years = VIMSHOTTARI_YEARS[lord]
+        end   = cursor + datetime.timedelta(days=years * _DAYS_PER_YEAR)
+        dashas.append({"lord": lord, "start": cursor, "end": end, "years": years})
+        cursor = end
+
+    return dashas
+
+
+def _calculate_bhukti(maha: dict) -> list:
+    """
+    Calculate all 9 Bhukti (Antardasa) periods within a Maha Dasha.
+
+    Proportions: Bhukti_years = (Maha_years × Bhukti_lord_years) / 120.
+    The sequence starts from the Maha Dasha lord itself.
+    Uses the TRUE start of the Maha Dasha so partial first periods are handled.
+
+    Returns a list of 9 dicts: {lord, start, end, years}
+    """
+    maha_lord  = maha["lord"]
+    maha_years = VIMSHOTTARI_YEARS[maha_lord]   # full period years (for ratio)
+    start_idx  = _DASHA_SEQUENCE.index(maha_lord)
+
+    bhukti_list = []
+    cursor = maha["start"]
+    for i in range(9):
+        b_lord  = _DASHA_SEQUENCE[(start_idx + i) % 9]
+        b_years = (maha_years * VIMSHOTTARI_YEARS[b_lord]) / _TOTAL_DASHA_YEARS
+        b_end   = cursor + datetime.timedelta(days=b_years * _DAYS_PER_YEAR)
+        bhukti_list.append({
+            "lord":  b_lord,
+            "start": cursor,
+            "end":   b_end,
+            "years": round(b_years, 4),
+        })
+        cursor = b_end
+    return bhukti_list
+
+
+def get_current_dasha_bhukti(dasha_list: list,
+                               reference_dt: datetime.datetime = None) -> dict:
+    """
+    Return the active Maha Dasha and Bhukti for reference_dt (default: now UTC).
+
+    Returns:
+        {
+          "maha":   {lord, start, end, years, days_remaining},
+          "bhukti": {lord, start, end, years, days_remaining},
+        }
+    Returns None if reference_dt falls outside all computed periods.
+    """
+    if reference_dt is None:
+        reference_dt = datetime.datetime.utcnow()
+
+    # Find the Maha Dasha containing reference_dt
+    maha = None
+    for d in dasha_list:
+        if d["start"] <= reference_dt <= d["end"]:
+            maha = d
+            break
+    if maha is None:
+        return None
+
+    maha_result = {**maha, "days_remaining": max(0, (maha["end"] - reference_dt).days)}
+
+    # Find the Bhukti within the Maha Dasha
+    bhukti_list = _calculate_bhukti(maha)
+    bhukti = next(
+        (b for b in bhukti_list if b["start"] <= reference_dt <= b["end"]),
+        bhukti_list[-1],    # edge case: floating-point rounding
+    )
+    bhukti_result = {**bhukti, "days_remaining": max(0, (bhukti["end"] - reference_dt).days)}
+
+    return {"maha": maha_result, "bhukti": bhukti_result}
+
+
+def scan_transit_affliction(planet_name: str,
+                             reference_dt: datetime.datetime = None,
+                             days_ahead: int = 365) -> dict:
+    """
+    Scan the next `days_ahead` days to find when the transit planet
+    enters or exits a Combustion / Gandanta zone.
+
+    Nodes (Rahu/Ketu): only Gandanta checked (no combustion).
+    Scans day by day — ~365 SWE calls, runs in < 5 ms.
+
+    Returns:
+        currently_afflicted (bool)
+        affliction_type     (str)   "Combust" | "Deep Combust" | "Gandanta" | "Clear"
+        exits_in_days       (int)   days until current affliction ends (0 if clear)
+        next_entry_days     (int)   days to next affliction after exit (None if none found)
+        next_entry_date     (str)   "YYYY-MM-DD" of next entry (None if none found)
+        next_entry_type     (str)   type of next affliction (None if none found)
+    """
+    if reference_dt is None:
+        reference_dt = datetime.datetime.utcnow()
+
+    is_node  = planet_name in ("Rahu", "Ketu")
+    pid      = _PLANET_IDS.get(planet_name)     # None for Rahu/Ketu (handled separately)
+
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    ref_jd = swe.julday(reference_dt.year, reference_dt.month, reference_dt.day,
+                         reference_dt.hour + reference_dt.minute / 60.0)
+
+    def _affliction_at(jd: float) -> str:
+        """Return worst affliction type at Julian Day jd, or 'Clear'."""
+        if planet_name == "Rahu":
+            p_lon = swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)[0][0]
+        elif planet_name == "Ketu":
+            p_lon = (swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)[0][0] + 180.0) % 360.0
+        else:
+            p_xx  = swe.calc_ut(jd, pid, _FLAGS)[0]
+            p_lon = p_xx[0]
+
+        # Gandanta always takes priority (applies to all planets including nodes)
+        if check_gandanta(p_lon)["gandanta"]:
+            return "Gandanta"
+
+        # Combustion — only for physical planets (not nodes, not Sun)
+        if not is_node and planet_name != "Sun":
+            sun_lon = swe.calc_ut(jd, swe.SUN, _FLAGS)[0][0]
+            p_retro = swe.calc_ut(jd, pid, _FLAGS)[0][3] < 0
+            c = check_combustion(sun_lon, p_lon, planet_name, p_retro)
+            if c.get("deep"):
+                return "Deep Combust"
+            if c.get("combust"):
+                return "Combust"
+
+        return "Clear"
+
+    current_aff = _affliction_at(ref_jd)
+    currently_afflicted = current_aff != "Clear"
+
+    if currently_afflicted:
+        # Find when current affliction ends
+        exits_in_days = days_ahead   # fallback: still active at horizon
+        for d in range(1, days_ahead + 1):
+            if _affliction_at(ref_jd + d) == "Clear":
+                exits_in_days = d
+                break
+
+        # Find next entry after exit
+        next_entry_days = next_entry_date = next_entry_type = None
+        for d in range(exits_in_days + 1, days_ahead + 1):
+            aff = _affliction_at(ref_jd + d)
+            if aff != "Clear":
+                next_entry_days = d
+                next_entry_date = (reference_dt + datetime.timedelta(days=d)).strftime("%Y-%m-%d")
+                next_entry_type = aff
+                break
+
+        return {
+            "currently_afflicted": True,
+            "affliction_type":     current_aff,
+            "exits_in_days":       exits_in_days,
+            "next_entry_days":     next_entry_days,
+            "next_entry_date":     next_entry_date,
+            "next_entry_type":     next_entry_type,
+        }
+
+    else:
+        # Clear now — find next entry
+        for d in range(1, days_ahead + 1):
+            aff = _affliction_at(ref_jd + d)
+            if aff != "Clear":
+                return {
+                    "currently_afflicted": False,
+                    "affliction_type":     "Clear",
+                    "exits_in_days":       0,
+                    "next_entry_days":     d,
+                    "next_entry_date":     (reference_dt + datetime.timedelta(days=d)).strftime("%Y-%m-%d"),
+                    "next_entry_type":     aff,
+                }
+        return {
+            "currently_afflicted": False,
+            "affliction_type":     "Clear",
+            "exits_in_days":       0,
+            "next_entry_days":     None,
+            "next_entry_date":     None,
+            "next_entry_type":     None,
+        }
+
+
 # ── Geocoding & timezone helpers ─────────────────────────────────────────────
 
 def geocode_place(place_name: str):
@@ -296,21 +522,27 @@ class AstrologyProtection:
         report = ap.get_protection_analysis()
     """
 
-    def __init__(self, birth_date: str, birth_time: str, lat: float, lon: float):
+    def __init__(self, birth_date: str, birth_time: str, lat: float, lon: float,
+                 transit_date: str = None):
         """
-        birth_date : "YYYY-MM-DD"
-        birth_time : "HH:MM"  (24-hour, local time at birth location)
-        lat, lon   : birth location coordinates (auto-detected or manual)
+        birth_date   : "YYYY-MM-DD"
+        birth_time   : "HH:MM"  (24-hour, local time at birth location)
+        lat, lon     : birth location coordinates (auto-detected or manual)
+        transit_date : "YYYY-MM-DD" — date for transit comparison (default: today)
         """
-        self.birth_date = birth_date
-        self.birth_time = birth_time
-        self.lat = lat
-        self.lon = lon
+        self.birth_date   = birth_date
+        self.birth_time   = birth_time
+        self.lat          = lat
+        self.lon          = lon
+        self.transit_date = transit_date   # None → use today in _calculate_transit
 
         swe.set_sid_mode(swe.SIDM_LAHIRI)
 
-        self.natal_data   = self._calculate_natal()
-        self.transit_data = self._calculate_transit()
+        # Store birth UTC for Dasha calculation (accessible by run_protection_analysis)
+        self._birth_utc = local_to_utc(birth_date, birth_time, lat, lon)
+
+        self.natal_data       = self._calculate_natal()
+        self.transit_data     = self._calculate_transit()
         self.protection_score = self._calculate_protection_score()
 
     # ── Natal calculation ─────────────────────────────────────────────────────
@@ -431,16 +663,25 @@ class AstrologyProtection:
 
     def _calculate_transit(self) -> dict:
         """
-        Get current (live) transit positions for the 7 natal planets.
+        Get transit planet positions for the selected date (or today if not set).
         Augments astrology_engine.get_transit_data() with combustion/gandanta checks.
         """
-        now_utc = datetime.datetime.utcnow()
+        if self.transit_date:
+            # User-selected date — default to noon UTC for that day
+            try:
+                td = datetime.datetime.strptime(self.transit_date.strip(), "%Y-%m-%d")
+                now_utc = td.replace(hour=12, minute=0, second=0)
+            except ValueError:
+                now_utc = datetime.datetime.utcnow()
+        else:
+            now_utc = datetime.datetime.utcnow()
+
         raw = get_transit_data(now_utc)
 
-        # get live Sun longitude for combustion checks
+        # Sun longitude for combustion checks on the transit date
         swe.set_sid_mode(swe.SIDM_LAHIRI)
-        jd_now = swe.julday(now_utc.year, now_utc.month, now_utc.day,
-                            now_utc.hour + now_utc.minute / 60.0)
+        jd_now  = swe.julday(now_utc.year, now_utc.month, now_utc.day,
+                              now_utc.hour + now_utc.minute / 60.0)
         sun_lon = swe.calc_ut(jd_now, swe.SUN, _FLAGS)[0][0]
 
         result = {}

@@ -47,6 +47,10 @@ from natal_protection import (
     geocode_place,
     NATAL_PLANETS,
     ALL_DISPLAY_PLANETS,
+    calculate_vimshottari_dasha,
+    get_current_dasha_bhukti,
+    scan_transit_affliction,
+    VIMSHOTTARI_YEARS,
 )
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -2110,12 +2114,14 @@ _PLANET_ICONS = {
     "Rahu": "☊", "Ketu": "☋",
 }
 
-def _comparison_table_html(natal: dict, transit: dict) -> str:
+def _comparison_table_html(natal: dict, transit: dict,
+                            transit_date_label: str = "") -> str:
     """
     Build a side-by-side Natal vs Transit comparison table.
     Covers: Ascendant, 7 planets, Rahu, Ketu.
     Rahu/Ketu show 'N/A' for combustion (shadow planets).
     Ascendant transit column is blank (changes every ~2h).
+    transit_date_label: shown in the Transit column header.
     """
     TD   = "style='padding:6px 9px;border-bottom:1px solid #2d3748;vertical-align:top'"
     TD_L = ("style='padding:6px 9px;border-bottom:1px solid #2d3748;"
@@ -2262,7 +2268,7 @@ def _comparison_table_html(natal: dict, transit: dict) -> str:
         "<th colspan='5' style='text-align:center;padding:10px;background:#1e3a5f;"
         "border-right:2px solid #4a5568'>🌟 Natal — Birth Chart</th>"
         "<th colspan='5' style='text-align:center;padding:10px;background:#14352a'>"
-        "🔄 Gocharam — Live Transit</th>"
+        f"🔭 Gocharam — Transit{(' · ' + transit_date_label) if transit_date_label else ''}</th>"
         "</tr>"
         "<tr style='background:#1e2535;color:#718096;font-size:0.78rem'>"
         "<th style='padding:5px 9px'></th>"
@@ -2384,19 +2390,242 @@ _CONCEPT_GUIDE_HTML = """
 """
 
 
-def run_protection_analysis(dob: str, tob: str, lat, lon):
+def _natal_status_badge(planet: str, natal_data: dict) -> str:
+    """Return a compact HTML badge for a planet's natal protection status."""
+    if planet not in natal_data:
+        return '<span style="color:#718096">—</span>'
+    d = natal_data[planet]
+    c = d.get("combust", {})
+    is_node = d.get("is_node", False)
+    # Hidden Strength
+    if not is_node and (c.get("deep") or c.get("combust")) and d.get("vargottama"):
+        return '<span style="color:#f6e05e;font-weight:600">🌟 Hidden Strength</span>'
+    if not is_node and c.get("deep"):
+        return f'<span style="color:#fc8181">🔥 Deep Combust ({c["orb"]:.1f}°)</span>'
+    if not is_node and c.get("combust"):
+        return f'<span style="color:#f6ad55">🔥 Combust ({c["orb"]:.1f}°)</span>'
+    if d.get("gandanta", {}).get("gandanta"):
+        jct = d["gandanta"].get("junction", "")
+        return f'<span style="color:#b794f4">⚡ Gandanta ({jct})</span>'
+    if d.get("vargottama"):
+        return '<span style="color:#68d391">✨ Vargottama</span>'
+    return '<span style="color:#68d391">🟢 Clear</span>'
+
+
+def _transit_alert_badge(scan: dict) -> str:
+    """Return a compact HTML transit alert badge from scan_transit_affliction result."""
+    if not scan:
+        return '<span style="color:#718096">—</span>'
+    if scan["currently_afflicted"]:
+        aff   = scan["affliction_type"]
+        exits = scan["exits_in_days"]
+        col   = "#fc8181" if "Deep" in aff or "Gandanta" in aff else "#f6ad55"
+        badge = f'<span style="color:{col}">⚠️ {aff} now</span>'
+        if exits < 365:
+            badge += f'<br><span style="color:#718096;font-size:0.78rem">exits in ~{exits} days</span>'
+        # Next event after exit
+        if scan.get("next_entry_date"):
+            badge += (f'<br><span style="color:#718096;font-size:0.78rem">'
+                      f'next: {scan["next_entry_type"]} ~{scan["next_entry_date"]}</span>')
+    else:
+        if scan.get("next_entry_days"):
+            nd   = scan["next_entry_days"]
+            ndt  = scan["next_entry_date"]
+            ntyp = scan["next_entry_type"]
+            col  = "#f6ad55" if nd < 60 else "#a0aec0"
+            badge = (f'<span style="color:#68d391">🟢 Clear now</span>'
+                     f'<br><span style="color:{col};font-size:0.78rem">'
+                     f'📅 next {ntyp} in {nd}d (~{ndt})</span>')
+        else:
+            badge = '<span style="color:#68d391">🟢 Clear — 12 months</span>'
+    return badge
+
+
+# Planet-specific precautions when a Dasha/Bhukti lord is natally afflicted
+_PLANET_PRECAUTIONS = {
+    "Sun":     "Avoid confrontations with authority. Strengthen self-confidence through service.",
+    "Moon":    "Guard emotional stability. Avoid impulsive decisions; nurture mental peace.",
+    "Mars":    "Control aggression. Avoid legal disputes and risky physical activities.",
+    "Mercury": "Verify contracts and communications carefully. Avoid speculation.",
+    "Jupiter": "Don't over-commit or be overly generous. Seek wise counsel before expanding.",
+    "Venus":   "Avoid major financial decisions or luxury purchases. Relationships need patience.",
+    "Saturn":  "Expect delays — plan for them. Discipline and consistency are your shield.",
+    "Rahu":    "Guard against obsession and shortcuts. Clarity of purpose is protection.",
+    "Ketu":    "Avoid detachment becoming avoidance. Stay grounded in practical duties.",
+}
+
+
+def _dasha_panel_html(db: dict, natal_data: dict,
+                       scan_maha: dict, scan_bhukti: dict,
+                       transit_date_str: str) -> str:
+    """
+    Render the Dasha/Bhukti panel showing:
+     - Active Maha Dasha and Bhukti with countdown
+     - Natal protection status of both lords
+     - Transit affliction scan alerts for both lords
+     - Precautions if either lord is natally afflicted
+    """
+    if not db:
+        return ""
+
+    maha   = db["maha"]
+    bhukti = db["bhukti"]
+
+    def _fmt_date(dt):
+        return dt.strftime("%d %b %Y") if isinstance(dt, datetime.datetime) else str(dt)
+
+    def _days_badge(days):
+        if days <= 90:
+            col = "#fc8181"
+        elif days <= 365:
+            col = "#f6ad55"
+        else:
+            col = "#68d391"
+        return f'<span style="color:{col};font-weight:600">⏳ {days:,} days remaining</span>'
+
+    maha_natal   = _natal_status_badge(maha["lord"],   natal_data)
+    bhukti_natal = _natal_status_badge(bhukti["lord"], natal_data)
+    maha_transit = _transit_alert_badge(scan_maha)
+    bhukti_transit = _transit_alert_badge(scan_bhukti)
+
+    # Collect affliction warnings for precaution section
+    warnings = []
+    for role, lord, scan in [("Maha Dasha", maha["lord"], scan_maha),
+                              ("Bhukti",     bhukti["lord"], scan_bhukti)]:
+        nd = natal_data.get(lord, {})
+        c  = nd.get("combust", {})
+        aff_natal = (c.get("combust") or c.get("deep")) and not nd.get("is_node")
+        aff_gand  = nd.get("gandanta", {}).get("gandanta")
+        if aff_natal or aff_gand:
+            kind = "Deep Combust" if c.get("deep") else ("Combust" if aff_natal else "Gandanta")
+            prec = _PLANET_PRECAUTIONS.get(lord, "Exercise caution in all major decisions.")
+            warnings.append((role, lord, kind, prec))
+        if scan and scan["currently_afflicted"]:
+            transit_prec = _PLANET_PRECAUTIONS.get(lord, "Exercise caution.")
+            warnings.append((f"Transit {lord}", lord, scan["affliction_type"], transit_prec))
+
+    # ── HTML ──────────────────────────────────────────────────────────────────
+    transit_note = (f"Transit date: <b>{transit_date_str}</b>. "
+                    "Transit scan always runs from <b>today</b>.")
+
+    html = f"""
+<div style="margin-top:16px;background:#0f172a;border:1px solid #2d3748;
+            border-radius:8px;padding:16px;color:#cbd5e0;font-size:0.85rem">
+
+  <div style="font-size:1rem;font-weight:700;color:#90cdf4;margin-bottom:12px">
+    🕐 Active Vimshottari Dasha &amp; Bhukti
+    <span style="font-size:0.75rem;font-weight:400;color:#718096;margin-left:8px">
+      ({transit_note})
+    </span>
+  </div>
+
+  <!-- Two-column Maha Dasha / Bhukti cards -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+
+    <!-- Maha Dasha card -->
+    <div style="background:#16202e;border:1px solid #2d3748;border-radius:6px;padding:12px">
+      <div style="color:#718096;font-size:0.72rem;text-transform:uppercase;
+                  letter-spacing:.05em;margin-bottom:4px">Maha Dasha</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e2e8f0">
+        {maha["lord"].upper()}
+        <span style="font-size:0.75rem;color:#718096;font-weight:400">
+          ({VIMSHOTTARI_YEARS[maha["lord"]]} yrs)
+        </span>
+      </div>
+      <div style="color:#718096;font-size:0.78rem;margin-top:2px">
+        Ends: {_fmt_date(maha["end"])}
+      </div>
+      <div style="margin-top:6px">{_days_badge(maha["days_remaining"])}</div>
+      <div style="margin-top:8px;border-top:1px solid #2d3748;padding-top:8px">
+        <span style="color:#718096;font-size:0.75rem">Natal: </span>
+        {maha_natal}
+      </div>
+      <div style="margin-top:6px">
+        <span style="color:#718096;font-size:0.75rem">Transit: </span>
+        {maha_transit}
+      </div>
+    </div>
+
+    <!-- Bhukti card -->
+    <div style="background:#16202e;border:1px solid #4a5568;border-left:3px solid #805ad5;
+                border-radius:6px;padding:12px">
+      <div style="color:#718096;font-size:0.72rem;text-transform:uppercase;
+                  letter-spacing:.05em;margin-bottom:4px">Current Bhukti (sub-period)</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e2e8f0">
+        {bhukti["lord"].upper()}
+        <span style="font-size:0.75rem;color:#718096;font-weight:400">
+          ({bhukti["years"]:.1f} yrs)
+        </span>
+      </div>
+      <div style="color:#718096;font-size:0.78rem;margin-top:2px">
+        Ends: {_fmt_date(bhukti["end"])}
+      </div>
+      <div style="margin-top:6px">{_days_badge(bhukti["days_remaining"])}</div>
+      <div style="margin-top:8px;border-top:1px solid #2d3748;padding-top:8px">
+        <span style="color:#718096;font-size:0.75rem">Natal: </span>
+        {bhukti_natal}
+      </div>
+      <div style="margin-top:6px">
+        <span style="color:#718096;font-size:0.75rem">Transit: </span>
+        {bhukti_transit}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Interpretation -->
+  <div style="background:#16202e;border-radius:6px;padding:10px 12px;
+              font-size:0.82rem;color:#a0aec0;margin-bottom:{ '12px' if warnings else '0' }">
+    <b style="color:#90cdf4">📖 Reading:</b>&nbsp;
+    You are in the <b style="color:#e2e8f0">{maha["lord"]} Maha Dasha</b> — the overarching
+    life-theme for {maha["years"]} years. The active sub-period
+    (<b style="color:#e2e8f0">{maha["lord"]}/{bhukti["lord"]} Bhukti</b>) delivers
+    day-to-day events through the lens of <b>{bhukti["lord"]}</b>'s significations.
+    The <b>natal status</b> above shows how strongly or weakly each lord operates in your chart.
+    The <b>transit status</b> shows if that planet is under additional stress <i>right now</i>
+    in the sky — a double affliction (natal + transit) signals a demanding window.
+  </div>
+"""
+
+    # ── Warnings / Precautions ────────────────────────────────────────────────
+    if warnings:
+        seen = set()
+        html += """
+  <div style="margin-top:0;border-top:1px solid #2d3748;padding-top:12px">
+    <div style="color:#f6ad55;font-weight:600;margin-bottom:8px">⚠️ Precautions</div>
+"""
+        for role, lord, kind, prec in warnings:
+            key = (lord, kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            col = "#fc8181" if "Deep" in kind or "Gandanta" in kind else "#f6ad55"
+            html += f"""
+    <div style="background:#1a1a1a;border-left:3px solid {col};border-radius:4px;
+                padding:8px 10px;margin-bottom:6px;font-size:0.81rem">
+      <b style="color:{col}">{role} — {lord} ({kind}):</b>&nbsp;
+      <span style="color:#a0aec0">{prec}</span>
+    </div>
+"""
+        html += "  </div>\n"
+
+    html += "</div>\n"
+    return html
+
+
+def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = None):
     """
     Tab 7 main compute function.
-    Returns (score_html, table_html, ai_markdown).
+    Returns (score_html, table_html, dasha_html, ai_markdown).
     """
+    _blank4 = ("", "", "", "")
     try:
         # ── Input validation ───────────────────────────────────────────────
         if not dob or not tob:
             msg = "⚠️ Please enter Date of Birth and Time of Birth."
-            return msg, msg, msg
+            return msg, msg, msg, msg
         dob = str(dob).strip()
         tob = str(tob).strip()
-        # Strict format check — gives a clear message instead of cryptic crash
         try:
             datetime.datetime.strptime(f"{dob} {tob}", "%Y-%m-%d %H:%M")
         except ValueError:
@@ -2405,21 +2634,46 @@ def run_protection_analysis(dob: str, tob: str, lat, lon):
                 "- Date must be **YYYY-MM-DD** (e.g. `1978-09-18`)  \n"
                 "- Time must be **HH:MM** in 24-hour format (e.g. `17:35`)"
             )
-            return err, err, err
+            return err, err, err, err
         if lat is None or lon is None:
-            return (
-                "⚠️ Location required.",
-                "⚠️ Click 'Resolve Location' or enter Latitude/Longitude manually.",
-                "",
-            )
-        ap    = AstrologyProtection(dob, tob, float(lat), float(lon))
+            msg2 = "⚠️ Click 'Resolve Location' or enter Latitude/Longitude manually."
+            return "⚠️ Location required.", msg2, "", ""
+
+        # Resolve transit date (default today)
+        td_str = (transit_date or "").strip() or datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        try:
+            datetime.datetime.strptime(td_str, "%Y-%m-%d")
+        except ValueError:
+            td_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+        # ── Core calculation ───────────────────────────────────────────────
+        ap         = AstrologyProtection(dob, tob, float(lat), float(lon),
+                                         transit_date=td_str)
         score_html = _protection_score_html(ap.protection_score)
-        table_html = _comparison_table_html(ap.natal_data, ap.transit_data)
-        ai_text    = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)
-        return score_html, table_html, ai_text
+        table_html = _comparison_table_html(ap.natal_data, ap.transit_data,
+                                             transit_date_label=td_str)
+
+        # ── Vimshottari Dasha / Bhukti ─────────────────────────────────────
+        moon_lon   = ap.natal_data["Moon"]["longitude"]
+        birth_utc  = ap._birth_utc   # stored in __init__
+        now_utc    = datetime.datetime.utcnow()
+        dasha_list = calculate_vimshottari_dasha(moon_lon, birth_utc)
+        db         = get_current_dasha_bhukti(dasha_list, now_utc)
+
+        dasha_html = ""
+        if db:
+            scan_maha   = scan_transit_affliction(db["maha"]["lord"],   now_utc)
+            scan_bhukti = scan_transit_affliction(db["bhukti"]["lord"], now_utc)
+            dasha_html  = _dasha_panel_html(db, ap.natal_data,
+                                             scan_maha, scan_bhukti, td_str)
+
+        ai_text = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)
+        return score_html, table_html, dasha_html, ai_text
+
     except Exception as exc:
+        import traceback
         err = f"⚠️ Error: {exc}"
-        return err, err, err
+        return err, err, "", err
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2557,6 +2811,15 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
                     np_location_md = gr.Markdown("_Enter a place name and click Resolve._")
                     np_lat = gr.Number(label="Latitude", precision=5)
                     np_lon = gr.Number(label="Longitude", precision=5)
+                    gr.Markdown("### Transit Date")
+                    with gr.Row():
+                        np_transit_date = gr.Textbox(
+                            label="Transit Date (YYYY-MM-DD)",
+                            value=datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+                            placeholder="e.g. 2025-06-15",
+                            scale=3,
+                        )
+                        np_today_btn = gr.Button("📅 Today", scale=1, variant="secondary")
                     np_analyse_btn = gr.Button("🔍 Analyse Protection", variant="primary")
 
                 with gr.Column(scale=2):
@@ -2564,6 +2827,7 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
                     np_table_out = gr.HTML(label="Natal vs Transit Comparison")
                     gr.HTML(_REFERENCE_HTML)
 
+            np_dasha_out = gr.HTML()
             gr.Markdown("### 🤖 AI Analysis")
             np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
 
@@ -2625,10 +2889,15 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
         inputs=[np_place],
         outputs=[np_lat, np_lon, np_location_md],
     )
+    np_today_btn.click(
+        fn=lambda: datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+        inputs=[],
+        outputs=[np_transit_date],
+    )
     np_analyse_btn.click(
         fn=run_protection_analysis,
-        inputs=[np_dob, np_tob, np_lat, np_lon],
-        outputs=[np_score_out, np_table_out, np_ai_out],
+        inputs=[np_dob, np_tob, np_lat, np_lon, np_transit_date],
+        outputs=[np_score_out, np_table_out, np_dasha_out, np_ai_out],
     )
 
     # ── Auto-load on page open ─────────────────────────────────────────────
