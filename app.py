@@ -2105,6 +2105,65 @@ _REFERENCE_HTML = """
     </div>
 
   </div>
+
+  <!-- Pushkara Navamsa zones -->
+  <div style="margin-top:14px;border-top:1px solid #2d3748;padding-top:12px">
+    <div style="font-weight:700;color:#ffd700;margin-bottom:8px">
+      🕉️ Pushkara Navamsa Zones — 24 divine-grace windows (3°20' each)
+    </div>
+    <div style="font-size:0.76rem;color:#a0aec0;margin-bottom:10px">
+      A Pushkara Navamsa is a specific 3°20' division whose D9 sign falls in a Jupiter- or Venus-ruled sign.
+      A planet here receives <b style="color:#ffd700">divine grace</b>.
+      If it is also <b>deeply combust or Gandanta</b>, its Visha Gati (poisonous movement) is
+      <b>neutralised</b> — initial struggle transforms into unexpected recovery. Score <b style="color:#ffd700">+5</b>.
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+
+      <div style="background:#16202e;border-radius:6px;padding:8px">
+        <div style="font-weight:600;color:#fc8181;margin-bottom:5px;font-size:0.78rem">🔥 Fire Signs</div>
+        <div style="color:#e2e8f0;font-size:0.75rem;line-height:1.8">
+          <b>Aries:</b> 20°00'–23°20' · 26°40'–30°00'<br>
+          <b>Leo:</b> 20°00'–23°20' · 26°40'–30°00'<br>
+          <b>Sagittarius:</b> 20°00'–23°20' · 26°40'–30°00'
+        </div>
+      </div>
+
+      <div style="background:#16202e;border-radius:6px;padding:8px">
+        <div style="font-weight:600;color:#68d391;margin-bottom:5px;font-size:0.78rem">🌿 Earth Signs</div>
+        <div style="color:#e2e8f0;font-size:0.75rem;line-height:1.8">
+          <b>Taurus:</b> 6°40'–10°00' · 13°20'–16°40'<br>
+          <b>Virgo:</b> 6°40'–10°00' · 13°20'–16°40'<br>
+          <b>Capricorn:</b> 6°40'–10°00' · 13°20'–16°40'
+        </div>
+      </div>
+
+      <div style="background:#16202e;border-radius:6px;padding:8px">
+        <div style="font-weight:600;color:#90cdf4;margin-bottom:5px;font-size:0.78rem">💨 Air Signs</div>
+        <div style="color:#e2e8f0;font-size:0.75rem;line-height:1.8">
+          <b>Gemini:</b> 16°40'–20°00' · 23°20'–26°40'<br>
+          <b>Libra:</b> 16°40'–20°00' · 23°20'–26°40'<br>
+          <b>Aquarius:</b> 16°40'–20°00' · 23°20'–26°40'
+        </div>
+      </div>
+
+      <div style="background:#16202e;border-radius:6px;padding:8px">
+        <div style="font-weight:600;color:#76e4f7;margin-bottom:5px;font-size:0.78rem">💧 Water Signs</div>
+        <div style="color:#e2e8f0;font-size:0.75rem;line-height:1.8">
+          <b>Cancer:</b> 0°00'–3°20' · 6°40'–10°00'<br>
+          <b>Scorpio:</b> 0°00'–3°20' · 6°40'–10°00'<br>
+          <b>Pisces:</b> 0°00'–3°20' · 6°40'–10°00'
+        </div>
+      </div>
+
+    </div>
+    <div style="margin-top:8px;padding:6px 8px;background:#1a1a2e;
+                border-left:3px solid #ffd700;border-radius:4px;font-size:0.78rem;color:#a0aec0">
+      <b style="color:#ffd700">Example:</b> Jupiter at 22° Leo = 20°–23°20' in Leo (Fire sign zone 1)
+      → Purva Phalguni Pada 3 — Pushkara. If combust by Sun, shows
+      <span style="color:#ffd700">🕉️ Divine Protection</span> instead of plain 🔥 Deep Combust.
+    </div>
+  </div>
+
 </div>
 """
 
@@ -2391,9 +2450,25 @@ _CONCEPT_GUIDE_HTML = """
       <div style="font-weight:700;color:#f6ad55;margin-bottom:6px">🛡️ Protection Score (1–10)</div>
       A composite score based on your natal planet conditions:<br>
       <span style="color:#fc8181">−2 Deep Combustion</span> · <span style="color:#f6ad55">−1 Combustion</span> ·
-      <span style="color:#b794f4">−2 Gandanta</span> · <span style="color:#68d391">+2 Vargottama</span><br>
+      <span style="color:#b794f4">−2 Gandanta</span> · <span style="color:#68d391">+2 Vargottama</span> ·
+      <span style="color:#ffd700">+5 Divine Protection (Pushkara overrides Visha Gati)</span><br>
       Baseline: <b>5</b>. Score 1–4 = Low · 5–6 = Moderate · 7–10 = Strong.
       This is <em>not</em> a fatalistic number — it highlights areas to be aware of and work with.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#ffd700;margin-bottom:6px">🕉️ Pushkara Navamsa (Divine Grace)</div>
+      Pushkara Navamsas are <b>24 specific 3°20' zones</b> across the zodiac whose Navamsa (D9)
+      sign falls in a <em>Jupiter- or Venus-ruled sign</em> — conferring divine grace and upliftment.
+      <br><br>
+      <b style="color:#ffd700">Visha Gati Neutralised:</b> If a planet is <em>deeply combust</em>
+      or in <em>Gandanta</em> (Visha Gati — poisonous movement), but also sits in a Pushkara
+      Navamsa, the affliction is overridden. The native faces <em>initial struggle</em> but
+      experiences <em>unexpected divine recovery</em>.
+      <br><br>
+      The score modifier is <b style="color:#ffd700">+5</b>, reflecting the exceptional protective
+      power. Each of the 12 signs has exactly 2 Pushkara zones (2 per sign × 12 = 24 total).
+      See the reference table below the chart for all 24 exact degree ranges.
     </div>
 
     <div style="background:#2d3748;border-radius:8px;padding:14px">
