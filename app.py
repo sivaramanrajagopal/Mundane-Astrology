@@ -42,6 +42,16 @@ from predictor import (
     _text_to_bullets,
     PLANET_ORDER,
 )
+from natal_protection import (
+    AstrologyProtection,
+    geocode_place,
+    NATAL_PLANETS,
+    ALL_DISPLAY_PLANETS,
+    calculate_vimshottari_dasha,
+    get_current_dasha_bhukti,
+    scan_transit_affliction,
+    VIMSHOTTARI_YEARS,
+)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 COUNTRIES      = list(COUNTRY_LAGNAS.keys())
@@ -59,9 +69,24 @@ body, html { background: #0b0f19 !important; overflow-x: hidden; max-width: 100v
   max-width: 100% !important;
 }
 
-/* ── Tab navigation ──────────────────────────────────────────────────── */
-.tab-nav button { color: #94a3b8 !important; background: transparent !important; }
-.tab-nav button.selected { color: #f8fafc !important; border-bottom: 2px solid #7c3aed !important; }
+/* ── Tab navigation — always scrollable so 7+ tabs never clip ────────── */
+.tab-nav, div[role="tablist"] {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap !important;
+  scrollbar-width: none;
+}
+.tab-nav::-webkit-scrollbar, div[role="tablist"]::-webkit-scrollbar { display: none; }
+.tab-nav button, div[role="tablist"] button {
+  color: #94a3b8 !important;
+  background: transparent !important;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tab-nav button.selected, div[role="tablist"] button[aria-selected="true"] {
+  color: #f8fafc !important;
+  border-bottom: 2px solid #7c3aed !important;
+}
 
 /* ── Form labels ─────────────────────────────────────────────────────── */
 label > span, .label-wrap > span, .block > label,
@@ -1946,9 +1971,728 @@ def dasha_timeline(dt_input, country):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tab 7: Natal Protection — backend functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def resolve_location(place_name: str):
+    """Geocode a place name and return (lat, lon, status_markdown)."""
+    if not place_name.strip():
+        return None, None, "_Enter a place name above._"
+    lat, lon, display = geocode_place(place_name.strip())
+    if lat is None:
+        return None, None, f"⚠️ {display}"
+    return round(lat, 5), round(lon, 5), f"📍 **{display}**  \n`{lat:.4f}°, {lon:.4f}°`"
+
+
+def _protection_score_html(score: int) -> str:
+    """Render a colored Protection Score badge."""
+    if score <= 4:
+        color, label = "#e53e3e", "Low"
+    elif score <= 6:
+        color, label = "#dd6b20", "Moderate"
+    else:
+        color, label = "#38a169", "Strong"
+    return (
+        f'<div style="text-align:center;padding:16px">'
+        f'<div style="display:inline-block;background:{color};color:#fff;'
+        f'border-radius:12px;padding:12px 32px;font-size:2rem;font-weight:700">'
+        f'{score}/10</div>'
+        f'<p style="margin:8px 0 0;font-size:1.1rem;color:{color};font-weight:600">'
+        f'{label} Protection</p>'
+        f'</div>'
+    )
+
+
+_REFERENCE_HTML = """
+<div style="margin-top:14px;background:#0f172a;border:1px solid #2d3748;
+            border-radius:8px;padding:14px 16px;font-size:0.82rem;color:#cbd5e0">
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+
+    <!-- Combustion orbs -->
+    <div>
+      <div style="font-weight:700;color:#f6ad55;margin-bottom:8px">
+        🔥 Combustion Orbs — same sign only
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
+            <th style="text-align:left;padding:2px 6px">Planet</th>
+            <th style="padding:2px 6px">Orb</th>
+            <th style="padding:2px 6px">Deep (&lt;3°)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:3px 6px">☀️ Sun</td>
+              <td style="text-align:center;padding:3px 6px;color:#718096">N/A</td>
+              <td style="text-align:center;padding:3px 6px;color:#718096">—</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">🌙 Moon</td>
+              <td style="text-align:center;padding:3px 6px">12°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr><td style="padding:3px 6px">♂️ Mars</td>
+              <td style="text-align:center;padding:3px 6px">17°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">☿ Mercury</td>
+              <td style="text-align:center;padding:3px 6px">14° / 12°℞</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr><td style="padding:3px 6px">♃ Jupiter</td>
+              <td style="text-align:center;padding:3px 6px">11°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">♀️ Venus</td>
+              <td style="text-align:center;padding:3px 6px">10°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr><td style="padding:3px 6px">♄ Saturn</td>
+              <td style="text-align:center;padding:3px 6px">15°</td>
+              <td style="text-align:center;padding:3px 6px;color:#fc8181">≤ 3°</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 6px">☊☋ Rahu/Ketu</td>
+              <td style="text-align:center;padding:3px 6px;color:#718096" colspan="2">
+                Shadow — not applicable</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:8px;padding:6px 8px;background:#1a2535;
+                  border-left:3px solid #f6ad55;border-radius:4px;font-size:0.78rem;color:#a0aec0">
+        <b style="color:#f6ad55">⚠️ Same-sign exception:</b> Combustion is only valid when
+        Sun &amp; planet are in the <b>same rasi</b>. If they are in different signs the orb
+        is shown as <span style="color:#718096">↔ Near (cross-sign)</span> — informational only,
+        not a penalty.
+      </div>
+    </div>
+
+    <!-- Gandanta zones -->
+    <div>
+      <div style="font-weight:700;color:#b794f4;margin-bottom:8px">
+        ⚡ Gandanta Zones — ±3°20' at Water→Fire junctions
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
+            <th style="text-align:left;padding:2px 6px">Junction</th>
+            <th style="padding:2px 6px">Water end</th>
+            <th style="padding:2px 6px">Fire start</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background:#16202e">
+            <td style="padding:4px 6px">Pisces → Aries</td>
+            <td style="text-align:center;padding:4px 6px">356°40'<br>
+              <span style="color:#718096;font-size:0.74rem">(26°40' Pisces)</span></td>
+            <td style="text-align:center;padding:4px 6px">3°20'<br>
+              <span style="color:#718096;font-size:0.74rem">(3°20' Aries)</span></td>
+          </tr>
+          <tr>
+            <td style="padding:4px 6px">Cancer → Leo</td>
+            <td style="text-align:center;padding:4px 6px">116°40'<br>
+              <span style="color:#718096;font-size:0.74rem">(26°40' Cancer)</span></td>
+            <td style="text-align:center;padding:4px 6px">123°20'<br>
+              <span style="color:#718096;font-size:0.74rem">(3°20' Leo)</span></td>
+          </tr>
+          <tr style="background:#16202e">
+            <td style="padding:4px 6px">Scorpio → Sagittarius</td>
+            <td style="text-align:center;padding:4px 6px">236°40'<br>
+              <span style="color:#718096;font-size:0.74rem">(26°40' Scorpio)</span></td>
+            <td style="text-align:center;padding:4px 6px">243°20'<br>
+              <span style="color:#718096;font-size:0.74rem">(3°20' Sagittarius)</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:8px;padding:6px 8px;background:#1a1a35;
+                  border-left:3px solid #b794f4;border-radius:4px;font-size:0.78rem;color:#a0aec0">
+        <b style="color:#b794f4">Note:</b> The last 3°20' of each Water sign (Cancer, Scorpio,
+        Pisces) and the first 3°20' of the following Fire sign (Leo, Sagittarius, Aries)
+        form the Gandanta zone. Nodes at Gandanta carry especially intense karmic weight.
+      </div>
+    </div>
+
+  </div>
+</div>
+"""
+
+
+_PLANET_ICONS = {
+    "Ascendant": "⬆️", "Sun": "☀️", "Moon": "🌙", "Mars": "♂️",
+    "Mercury": "☿", "Jupiter": "♃", "Venus": "♀️", "Saturn": "♄",
+    "Rahu": "☊", "Ketu": "☋",
+}
+
+def _comparison_table_html(natal: dict, transit: dict,
+                            transit_date_label: str = "") -> str:
+    """
+    Build a side-by-side Natal vs Transit comparison table.
+    Covers: Ascendant, 7 planets, Rahu, Ketu.
+    Rahu/Ketu show 'N/A' for combustion (shadow planets).
+    Ascendant transit column is blank (changes every ~2h).
+    transit_date_label: shown in the Transit column header.
+    """
+    TD   = "style='padding:6px 9px;border-bottom:1px solid #2d3748;vertical-align:top'"
+    TD_L = ("style='padding:6px 9px;border-bottom:1px solid #2d3748;"
+            "vertical-align:top;border-left:2px solid #4a5568'")
+
+    def _nak_cell(nak, pad, lord):
+        return (f"<span style='font-weight:500'>{nak}</span>"
+                f"<br><span style='color:#718096;font-size:0.76rem'>Pada {pad} · {lord}</span>")
+
+    def _flags(data, is_node=False, is_asc=False):
+        parts = []
+        c = data.get("combust", {})
+        g = data.get("gandanta", {})
+        _o = c.get("orb", 0)
+
+        if not is_node and not is_asc:
+            # ── Hidden Strength: combust D1 + Vargottama D9 ──────────────────
+            # A combust planet that is also Vargottama has inner D9 protection.
+            # Surface struggle exists but success is preserved at a deeper level.
+            if (c.get("deep") or c.get("combust")) and data.get("vargottama"):
+                parts.append(
+                    '<span style="color:#f6e05e;font-weight:600" '
+                    'title="Combust in D1 (rasi) but Vargottama in D9 (navamsa). '
+                    'Surface struggle exists — inner protection active. '
+                    'Temporary setback followed by deep success. '
+                    '(per Parashara tradition)">'
+                    '🌟 Hidden Strength (Combust + Vargottama)</span>'
+                )
+            else:
+                # Regular combustion flags
+                if c.get("deep"):
+                    parts.append(
+                        f'<span style="color:#fc8181;font-weight:600">'
+                        f'🔥 Deep Combust ({_o:.1f}°)</span>'
+                    )
+                elif c.get("combust"):
+                    parts.append(
+                        f'<span style="color:#f6ad55">🔥 Combust ({_o:.1f}°)</span>'
+                    )
+                elif c.get("cross_sign") and c.get("would_combust"):
+                    # Within orb but different sign — classical sign-wall exception.
+                    # Suppress entirely when Gandanta is also active:
+                    # Gandanta overrides the sign-wall protection.
+                    if not g.get("gandanta"):
+                        parts.append(
+                            f'<span style="color:#718096;font-size:0.8rem" '
+                            f'title="Within {_o:.1f} deg orb but Sun is in a different sign — '
+                            f'classical sign-wall exception applies">'
+                            f'↔ Near ({_o:.1f}°) cross-sign</span>'
+                        )
+        elif is_node:
+            parts.append(
+                '<span style="color:#4a5568;font-size:0.78rem">☽☋ No combustion</span>'
+            )
+
+        # ── Gandanta ─────────────────────────────────────────────────────────
+        if g.get("gandanta"):
+            jct  = g.get("junction", "")
+            gorb = g.get("orb", 0)
+            # If this planet was within a combustion orb but shielded by the sign-wall,
+            # Gandanta still fires — make the override explicit.
+            overrides = (
+                not is_node and not is_asc
+                and c.get("cross_sign") and c.get("would_combust")
+            )
+            label = f"Gandanta ({jct}, {gorb:.1f}°)"
+            if overrides:
+                label += " — overrides sign-wall"
+            parts.append(f'<span style="color:#b794f4">⚡ {label}</span>')
+
+        # ── Vargottama (standalone only — not when merged into Hidden Strength) ──
+        already_merged = (
+            not is_node and not is_asc
+            and (c.get("deep") or c.get("combust")) and data.get("vargottama")
+        )
+        if data.get("vargottama") and not already_merged:
+            parts.append('<span style="color:#68d391">✨ Vargottama</span>')
+
+        return " ".join(parts) if parts else '<span style="color:#4a5568">—</span>'
+
+    _TRANSIT_NONE = (
+        "<td colspan='5' "
+        "style='padding:6px 9px;border-bottom:1px solid #2d3748;"
+        "border-left:2px solid #4a5568;color:#4a5568;font-style:italic;"
+        "text-align:center'>N/A — changes every 2 h</td>"
+    )
+
+    rows = []
+    for planet in ALL_DISPLAY_PLANETS:
+        n = natal.get(planet)
+        if not n:
+            continue
+
+        icon     = _PLANET_ICONS.get(planet, "")
+        is_node  = n.get("is_node", False)
+        is_asc   = n.get("is_ascendant", False)
+        retro_n  = (" <span style='color:#f6ad55;font-size:0.78rem'>℞</span>"
+                    if n.get("retrograde") else "")
+
+        n_nak_cell = _nak_cell(n.get("nakshatra","—"),
+                               n.get("pada","—"),
+                               n.get("nakshatra_lord","—"))
+        n_flag_str = _flags(n, is_node=is_node, is_asc=is_asc)
+
+        # row background alternation
+        bg = "background:#16202e" if ALL_DISPLAY_PLANETS.index(planet) % 2 == 0 else ""
+
+        natal_cells = (
+            f"<td {TD} style='font-weight:700;color:#e2e8f0;{bg}'>"
+            f"{icon} {planet}</td>"
+            f"<td {TD}>{n['longitude']:.2f}°{retro_n}</td>"
+            f"<td {TD}>{n['sign']}</td>"
+            f"<td {TD}>{n_nak_cell}</td>"
+            f"<td {TD}><span style='font-size:0.82rem'>{n.get('state','—')}</span></td>"
+            f"<td {TD} style='border-right:2px solid #4a5568'>{n_flag_str}</td>"
+        )
+
+        if is_asc:
+            transit_cells = _TRANSIT_NONE
+        else:
+            t = transit.get(planet)
+            if not t:
+                transit_cells = _TRANSIT_NONE
+            else:
+                retro_t = (" <span style='color:#f6ad55;font-size:0.78rem'>℞</span>"
+                           if t.get("retrograde") else "")
+                t_nak_cell = _nak_cell(t.get("nakshatra","—"),
+                                       t.get("pada","—"),
+                                       t.get("nakshatra_lord","—"))
+                t_flag_str = _flags(t, is_node=is_node)
+                transit_cells = (
+                    f"<td {TD_L}>{t['longitude']:.2f}°{retro_t}</td>"
+                    f"<td {TD}>{t['sign']}</td>"
+                    f"<td {TD}>{t_nak_cell}</td>"
+                    f"<td {TD}><span style='font-size:0.82rem'>{t.get('state','—')}</span></td>"
+                    f"<td {TD}>{t_flag_str}</td>"
+                )
+
+        rows.append(f"<tr>{natal_cells}{transit_cells}</tr>")
+
+    header = (
+        "<thead>"
+        "<tr style='background:#0f172a;color:#fff'>"
+        "<th style='padding:10px 9px;text-align:left'>Planet</th>"
+        "<th colspan='5' style='text-align:center;padding:10px;background:#1e3a5f;"
+        "border-right:2px solid #4a5568'>🌟 Natal — Birth Chart</th>"
+        "<th colspan='5' style='text-align:center;padding:10px;background:#14352a'>"
+        f"🔭 Gocharam — Transit{(' · ' + transit_date_label) if transit_date_label else ''}</th>"
+        "</tr>"
+        "<tr style='background:#1e2535;color:#718096;font-size:0.78rem'>"
+        "<th style='padding:5px 9px'></th>"
+        "<th style='padding:5px 9px'>Longitude</th>"
+        "<th style='padding:5px 9px'>Sign</th>"
+        "<th style='padding:5px 9px'>Nakshatra · Pada · Lord</th>"
+        "<th style='padding:5px 9px'>State</th>"
+        "<th style='padding:5px 9px;border-right:2px solid #4a5568'>Flags</th>"
+        "<th style='padding:5px 9px;border-left:2px solid #4a5568'>Longitude</th>"
+        "<th style='padding:5px 9px'>Sign</th>"
+        "<th style='padding:5px 9px'>Nakshatra · Pada · Lord</th>"
+        "<th style='padding:5px 9px'>State</th>"
+        "<th style='padding:5px 9px'>Flags</th>"
+        "</tr></thead>"
+    )
+    body = "<tbody>" + "".join(rows) + "</tbody>"
+    return (
+        "<div style='overflow-x:auto;border-radius:8px;border:1px solid #2d3748;margin-top:8px'>"
+        "<table style='width:100%;border-collapse:collapse;font-size:0.87rem;"
+        "background:#1a202c;color:#e2e8f0'>"
+        + header + body +
+        "</table></div>"
+    )
+
+
+_CONCEPT_GUIDE_HTML = """
+<div style="background:#1a202c;border:1px solid #2d3748;border-radius:10px;padding:20px;color:#e2e8f0;font-size:0.92rem;line-height:1.7">
+
+  <h3 style="color:#90cdf4;margin-top:0">🪐 How to Read This Chart — Vedic Concepts Explained</h3>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:12px">
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#fbd38d;margin-bottom:6px">🌙 Nakshatra (Lunar Mansion)</div>
+      The sky is divided into <b>27 Nakshatras</b>, each spanning <b>13°20'</b>.
+      Every planet "sits" in one of these mansions at birth and in transit.
+      Each Nakshatra has a ruling planet (its <em>lord</em>) that colours the planet's energy —
+      e.g., Moon in Rohini (ruled by Moon) gives nurturing, creative energy.
+      Nakshatras are finer than signs and reveal the <em>texture</em> of a planet's expression.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#fbd38d;margin-bottom:6px">🔢 Pada (Quarter)</div>
+      Each Nakshatra is split into <b>4 Padas</b> (quarters) of <b>3°20'</b> each.
+      The Pada maps to a Navamsa sign (D9 chart), adding another layer of detail.
+      <b>Pada 1</b> = Aries energy, <b>Pada 2</b> = Taurus energy, etc., cycling through
+      the signs in order. Knowing the Pada helps understand <em>which aspect</em> of the
+      Nakshatra is activated.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#fc8181;margin-bottom:6px">🔥 Combustion (Astangata)</div>
+      A planet that comes too close to the <b>Sun</b> gets "burned" and loses strength.
+      Each planet has its own safe distance — e.g., Jupiter needs to stay beyond 11°,
+      Venus beyond 10°. Within <b>3°</b> is <em>deep combustion</em> (severe).
+      A combust planet struggles to deliver its significations: combust Venus can
+      affect wealth/relationships; combust Mercury can affect communication.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#b794f4;margin-bottom:6px">⚡ Gandanta (Karmic Knot)</div>
+      Gandanta zones sit at the <b>Water–Fire sign junctions</b>:
+      Pisces/Aries (0°), Cancer/Leo (120°), Scorpio/Sagittarius (240°).
+      A planet within <b>±3°20'</b> of these points is in a Gandanta zone —
+      considered a "knot" between worlds. It indicates karmic intensity and
+      unresolved soul-level themes that require conscious healing.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#68d391;margin-bottom:6px">✨ Vargottama (Amplified Strength)</div>
+      A planet is Vargottama when its <b>D1 (Rasi/birth chart) sign equals its D9 (Navamsa) sign</b>.
+      This happens at the beginning and middle of each sign. It is considered
+      <em>very auspicious</em> — the planet's qualities are amplified and more reliably expressed.
+      A Vargottama Venus, for example, strongly blesses love, beauty, and abundance.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#63b3ed;margin-bottom:6px">🔄 Transit / Gocharam (Live Positions)</div>
+      While your <em>natal chart</em> is fixed at birth, planets keep moving.
+      <b>Gocharam</b> (transit) compares <em>where planets are today</em> against your natal positions.
+      When a transit planet activates a natal weak point (e.g., transit Sun conjuncts your natal
+      combust Venus), that theme is triggered. When a transit planet moves <em>away</em> from
+      combustion, it opens an "action window" — a window to act on that planet's themes.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#f6ad55;margin-bottom:6px">🛡️ Protection Score (1–10)</div>
+      A composite score based on your natal planet conditions:<br>
+      <span style="color:#fc8181">−2 Deep Combustion</span> · <span style="color:#f6ad55">−1 Combustion</span> ·
+      <span style="color:#b794f4">−2 Gandanta</span> · <span style="color:#68d391">+2 Vargottama</span><br>
+      Baseline: <b>5</b>. Score 1–4 = Low · 5–6 = Moderate · 7–10 = Strong.
+      This is <em>not</em> a fatalistic number — it highlights areas to be aware of and work with.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#f687b3;margin-bottom:6px">☊☋ Rahu &amp; Ketu (Shadow Planets)</div>
+      Rahu (North Node) and Ketu (South Node) are <b>mathematical points</b> — the intersections of
+      the Moon's orbit with the ecliptic. They are <em>always</em> exactly opposite (180° apart)
+      and always retrograde. They carry karmic significance:<br>
+      <b>Rahu</b> = desires, ambition, future-directed karma.<br>
+      <b>Ketu</b> = detachment, past-life wisdom, spiritual liberation.<br>
+      Because they are shadow points (not physical bodies), <b>combustion does not apply</b>.
+      Gandanta and Vargottama <em>do</em> apply — nodes at a Water-Fire junction indicate
+      especially intense karmic knots.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#76e4f7;margin-bottom:6px">⬆️ Ascendant (Lagna)</div>
+      The Ascendant is the degree of the zodiac <b>rising on the eastern horizon</b> at the exact
+      moment of birth. It is the most personal point in the chart — it defines your body, personality,
+      and how the world sees you. The Ascendant changes sign every ~2 hours, so an accurate birth
+      time is critical. Gandanta Lagna (Ascendant at a Water-Fire junction) at birth is considered
+      a very significant karmic marker. No transit Ascendant is shown since it would not be
+      meaningful for comparison.
+    </div>
+
+  </div>
+</div>
+"""
+
+
+def _natal_status_badge(planet: str, natal_data: dict) -> str:
+    """Return a compact HTML badge for a planet's natal protection status."""
+    if planet not in natal_data:
+        return '<span style="color:#718096">—</span>'
+    d = natal_data[planet]
+    c = d.get("combust", {})
+    is_node = d.get("is_node", False)
+    # Hidden Strength
+    if not is_node and (c.get("deep") or c.get("combust")) and d.get("vargottama"):
+        return '<span style="color:#f6e05e;font-weight:600">🌟 Hidden Strength</span>'
+    if not is_node and c.get("deep"):
+        return f'<span style="color:#fc8181">🔥 Deep Combust ({c["orb"]:.1f}°)</span>'
+    if not is_node and c.get("combust"):
+        return f'<span style="color:#f6ad55">🔥 Combust ({c["orb"]:.1f}°)</span>'
+    if d.get("gandanta", {}).get("gandanta"):
+        jct = d["gandanta"].get("junction", "")
+        return f'<span style="color:#b794f4">⚡ Gandanta ({jct})</span>'
+    if d.get("vargottama"):
+        return '<span style="color:#68d391">✨ Vargottama</span>'
+    return '<span style="color:#68d391">🟢 Clear</span>'
+
+
+def _transit_alert_badge(scan: dict) -> str:
+    """Return a compact HTML transit alert badge from scan_transit_affliction result."""
+    if not scan:
+        return '<span style="color:#718096">—</span>'
+    if scan["currently_afflicted"]:
+        aff   = scan["affliction_type"]
+        exits = scan["exits_in_days"]
+        col   = "#fc8181" if "Deep" in aff or "Gandanta" in aff else "#f6ad55"
+        badge = f'<span style="color:{col}">⚠️ {aff} now</span>'
+        if exits is not None:
+            badge += f'<br><span style="color:#718096;font-size:0.78rem">exits in ~{exits} days</span>'
+        else:
+            badge += '<br><span style="color:#718096;font-size:0.78rem">active beyond 12-month horizon</span>'
+        # Next event after exit
+        if scan.get("next_entry_date"):
+            badge += (f'<br><span style="color:#718096;font-size:0.78rem">'
+                      f'next: {scan["next_entry_type"]} ~{scan["next_entry_date"]}</span>')
+    else:
+        if scan.get("next_entry_days"):
+            nd   = scan["next_entry_days"]
+            ndt  = scan["next_entry_date"]
+            ntyp = scan["next_entry_type"]
+            col  = "#f6ad55" if nd < 60 else "#a0aec0"
+            badge = (f'<span style="color:#68d391">🟢 Clear now</span>'
+                     f'<br><span style="color:{col};font-size:0.78rem">'
+                     f'📅 next {ntyp} in {nd}d (~{ndt})</span>')
+        else:
+            badge = '<span style="color:#68d391">🟢 Clear — 12 months</span>'
+    return badge
+
+
+# Planet-specific precautions when a Dasha/Bhukti lord is natally afflicted
+_PLANET_PRECAUTIONS = {
+    "Sun":     "Avoid confrontations with authority. Strengthen self-confidence through service.",
+    "Moon":    "Guard emotional stability. Avoid impulsive decisions; nurture mental peace.",
+    "Mars":    "Control aggression. Avoid legal disputes and risky physical activities.",
+    "Mercury": "Verify contracts and communications carefully. Avoid speculation.",
+    "Jupiter": "Don't over-commit or be overly generous. Seek wise counsel before expanding.",
+    "Venus":   "Avoid major financial decisions or luxury purchases. Relationships need patience.",
+    "Saturn":  "Expect delays — plan for them. Discipline and consistency are your shield.",
+    "Rahu":    "Guard against obsession and shortcuts. Clarity of purpose is protection.",
+    "Ketu":    "Avoid detachment becoming avoidance. Stay grounded in practical duties.",
+}
+
+
+def _dasha_panel_html(db: dict, natal_data: dict,
+                       scan_maha: dict, scan_bhukti: dict,
+                       transit_date_str: str) -> str:
+    """
+    Render the Dasha/Bhukti panel showing:
+     - Active Maha Dasha and Bhukti with countdown
+     - Natal protection status of both lords
+     - Transit affliction scan alerts for both lords
+     - Precautions if either lord is natally afflicted
+    """
+    if not db:
+        return ""
+
+    maha   = db["maha"]
+    bhukti = db["bhukti"]
+
+    def _fmt_date(dt):
+        return dt.strftime("%d %b %Y") if isinstance(dt, datetime.datetime) else str(dt)
+
+    def _days_badge(days):
+        if days <= 90:
+            col = "#fc8181"
+        elif days <= 365:
+            col = "#f6ad55"
+        else:
+            col = "#68d391"
+        return f'<span style="color:{col};font-weight:600">⏳ {days:,} days remaining</span>'
+
+    maha_natal   = _natal_status_badge(maha["lord"],   natal_data)
+    bhukti_natal = _natal_status_badge(bhukti["lord"], natal_data)
+    maha_transit = _transit_alert_badge(scan_maha)
+    bhukti_transit = _transit_alert_badge(scan_bhukti)
+
+    # Collect affliction warnings for precaution section
+    warnings = []
+    for role, lord, scan in [("Maha Dasha", maha["lord"], scan_maha),
+                              ("Bhukti",     bhukti["lord"], scan_bhukti)]:
+        nd = natal_data.get(lord, {})
+        c  = nd.get("combust", {})
+        aff_natal = (c.get("combust") or c.get("deep")) and not nd.get("is_node")
+        aff_gand  = nd.get("gandanta", {}).get("gandanta")
+        if aff_natal or aff_gand:
+            kind = "Deep Combust" if c.get("deep") else ("Combust" if aff_natal else "Gandanta")
+            prec = _PLANET_PRECAUTIONS.get(lord, "Exercise caution in all major decisions.")
+            warnings.append((role, lord, kind, prec))
+        if scan and scan["currently_afflicted"]:
+            transit_prec = _PLANET_PRECAUTIONS.get(lord, "Exercise caution.")
+            warnings.append((f"Transit {lord}", lord, scan["affliction_type"], transit_prec))
+
+    # ── HTML ──────────────────────────────────────────────────────────────────
+    transit_note = (f"Transit date: <b>{transit_date_str}</b>. "
+                    "Transit scan always runs from <b>today</b>.")
+
+    html = f"""
+<div style="margin-top:16px;background:#0f172a;border:1px solid #2d3748;
+            border-radius:8px;padding:16px;color:#cbd5e0;font-size:0.85rem">
+
+  <div style="font-size:1rem;font-weight:700;color:#90cdf4;margin-bottom:12px">
+    🕐 Active Vimshottari Dasha &amp; Bhukti
+    <span style="font-size:0.75rem;font-weight:400;color:#718096;margin-left:8px">
+      ({transit_note})
+    </span>
+  </div>
+
+  <!-- Two-column Maha Dasha / Bhukti cards -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+
+    <!-- Maha Dasha card -->
+    <div style="background:#16202e;border:1px solid #2d3748;border-radius:6px;padding:12px">
+      <div style="color:#718096;font-size:0.72rem;text-transform:uppercase;
+                  letter-spacing:.05em;margin-bottom:4px">Maha Dasha</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e2e8f0">
+        {maha["lord"].upper()}
+        <span style="font-size:0.75rem;color:#718096;font-weight:400">
+          ({VIMSHOTTARI_YEARS[maha["lord"]]} yrs)
+        </span>
+      </div>
+      <div style="color:#718096;font-size:0.78rem;margin-top:2px">
+        Ends: {_fmt_date(maha["end"])}
+      </div>
+      <div style="margin-top:6px">{_days_badge(maha["days_remaining"])}</div>
+      <div style="margin-top:8px;border-top:1px solid #2d3748;padding-top:8px">
+        <span style="color:#718096;font-size:0.75rem">Natal: </span>
+        {maha_natal}
+      </div>
+      <div style="margin-top:6px">
+        <span style="color:#718096;font-size:0.75rem">Transit: </span>
+        {maha_transit}
+      </div>
+    </div>
+
+    <!-- Bhukti card -->
+    <div style="background:#16202e;border:1px solid #4a5568;border-left:3px solid #805ad5;
+                border-radius:6px;padding:12px">
+      <div style="color:#718096;font-size:0.72rem;text-transform:uppercase;
+                  letter-spacing:.05em;margin-bottom:4px">Current Bhukti (sub-period)</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e2e8f0">
+        {bhukti["lord"].upper()}
+        <span style="font-size:0.75rem;color:#718096;font-weight:400">
+          ({bhukti["years"]:.1f} yrs)
+        </span>
+      </div>
+      <div style="color:#718096;font-size:0.78rem;margin-top:2px">
+        Ends: {_fmt_date(bhukti["end"])}
+      </div>
+      <div style="margin-top:6px">{_days_badge(bhukti["days_remaining"])}</div>
+      <div style="margin-top:8px;border-top:1px solid #2d3748;padding-top:8px">
+        <span style="color:#718096;font-size:0.75rem">Natal: </span>
+        {bhukti_natal}
+      </div>
+      <div style="margin-top:6px">
+        <span style="color:#718096;font-size:0.75rem">Transit: </span>
+        {bhukti_transit}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Interpretation -->
+  <div style="background:#16202e;border-radius:6px;padding:10px 12px;
+              font-size:0.82rem;color:#a0aec0;margin-bottom:{ '12px' if warnings else '0' }">
+    <b style="color:#90cdf4">📖 Reading:</b>&nbsp;
+    You are in the <b style="color:#e2e8f0">{maha["lord"]} Maha Dasha</b> — the overarching
+    life-theme for {maha["years"]} years. The active sub-period
+    (<b style="color:#e2e8f0">{maha["lord"]}/{bhukti["lord"]} Bhukti</b>) delivers
+    day-to-day events through the lens of <b>{bhukti["lord"]}</b>'s significations.
+    The <b>natal status</b> above shows how strongly or weakly each lord operates in your chart.
+    The <b>transit status</b> shows if that planet is under additional stress <i>right now</i>
+    in the sky — a double affliction (natal + transit) signals a demanding window.
+  </div>
+"""
+
+    # ── Warnings / Precautions ────────────────────────────────────────────────
+    if warnings:
+        seen = set()
+        html += """
+  <div style="margin-top:0;border-top:1px solid #2d3748;padding-top:12px">
+    <div style="color:#f6ad55;font-weight:600;margin-bottom:8px">⚠️ Precautions</div>
+"""
+        for role, lord, kind, prec in warnings:
+            key = (lord, kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            col = "#fc8181" if "Deep" in kind or "Gandanta" in kind else "#f6ad55"
+            html += f"""
+    <div style="background:#1a1a1a;border-left:3px solid {col};border-radius:4px;
+                padding:8px 10px;margin-bottom:6px;font-size:0.81rem">
+      <b style="color:{col}">{role} — {lord} ({kind}):</b>&nbsp;
+      <span style="color:#a0aec0">{prec}</span>
+    </div>
+"""
+        html += "  </div>\n"
+
+    html += "</div>\n"
+    return html
+
+
+def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = None):
+    """
+    Tab 7 main compute function.
+    Returns (score_html, table_html, dasha_html, ai_markdown).
+    """
+    _blank4 = ("", "", "", "")
+    try:
+        # ── Input validation ───────────────────────────────────────────────
+        if not dob or not tob:
+            msg = "⚠️ Please enter Date of Birth and Time of Birth."
+            return msg, msg, msg, msg
+        dob = str(dob).strip()
+        tob = str(tob).strip()
+        try:
+            datetime.datetime.strptime(f"{dob} {tob}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            err = (
+                "⚠️ **Invalid date or time format.**  \n"
+                "- Date must be **YYYY-MM-DD** (e.g. `1978-09-18`)  \n"
+                "- Time must be **HH:MM** in 24-hour format (e.g. `17:35`)"
+            )
+            return err, err, err, err
+        if lat is None or lon is None:
+            msg2 = "⚠️ Click 'Resolve Location' or enter Latitude/Longitude manually."
+            return "⚠️ Location required.", msg2, "", ""
+
+        # Resolve transit date (default today)
+        td_str = (transit_date or "").strip() or datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        try:
+            datetime.datetime.strptime(td_str, "%Y-%m-%d")
+        except ValueError:
+            td_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+        # ── Core calculation ───────────────────────────────────────────────
+        ap         = AstrologyProtection(dob, tob, float(lat), float(lon),
+                                         transit_date=td_str)
+        score_html = _protection_score_html(ap.protection_score)
+        table_html = _comparison_table_html(ap.natal_data, ap.transit_data,
+                                             transit_date_label=td_str)
+
+        # ── Vimshottari Dasha / Bhukti ─────────────────────────────────────
+        moon_lon   = ap.natal_data["Moon"]["longitude"]
+        birth_utc  = ap._birth_utc   # stored in __init__
+        now_utc    = datetime.datetime.utcnow()
+        dasha_list = calculate_vimshottari_dasha(moon_lon, birth_utc)
+        db         = get_current_dasha_bhukti(dasha_list, now_utc)
+
+        dasha_html = ""
+        if db:
+            scan_maha   = scan_transit_affliction(db["maha"]["lord"],   now_utc)
+            scan_bhukti = scan_transit_affliction(db["bhukti"]["lord"], now_utc)
+            dasha_html  = _dasha_panel_html(db, ap.natal_data,
+                                             scan_maha, scan_bhukti, td_str)
+        else:
+            dasha_html = (
+                '<div style="padding:1rem;color:#f6ad55">'
+                '⚠️ Dasha period not found: the reference date falls outside '
+                'the 120-year Vimshottari cycle computed from this birth date. '
+                'Check that the birth date and time are correct.'
+                '</div>'
+            )
+
+        ai_text = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)
+        return score_html, table_html, dasha_html, ai_text
+
+    except Exception as exc:
+        import traceback
+        err = f"⚠️ Error: {exc}"
+        return err, err, "", err
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
+with gr.Blocks(title="Mundane Astrology Dashboard",
+               theme=gr.themes.Soft(),
+               css=_GRADIO_CSS) as demo:
 
     gr.Markdown(
         "# 🪐 Mundane Astrology Dashboard\n"
@@ -2054,6 +2798,50 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
             )
             dasha_out = gr.HTML(label="📅 Dasha & Bhukti Timeline")
 
+        # ── Tab 7: Natal Protection Analysis ──────────────────────────────────
+        with gr.Tab("🛡️ Natal Protection"):
+            gr.Markdown(
+                "Enter your birth details to calculate your **Vedic Protection Score** (1–10). "
+                "Shows Nakshatra, Pada, Combustion, Gandanta, and Vargottama for all 7 natal planets "
+                "alongside live transit (Gocharam) positions. AI generates personalised alerts and action windows."
+            )
+
+            with gr.Accordion("📚 What do these terms mean? (Concept Guide)", open=False):
+                gr.HTML(_CONCEPT_GUIDE_HTML)
+
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("### Birth Details")
+                    np_dob  = gr.Textbox(label="Date of Birth (YYYY-MM-DD)",
+                                         placeholder="e.g. 1978-09-18")
+                    np_tob  = gr.Textbox(label="Time of Birth (HH:MM, 24h)",
+                                         placeholder="e.g. 17:35")
+                    np_place = gr.Textbox(label="Place of Birth",
+                                          placeholder="e.g. Chennai, India")
+                    np_resolve_btn = gr.Button("📍 Resolve Location", variant="secondary")
+                    np_location_md = gr.Markdown("_Enter a place name and click Resolve._")
+                    np_lat = gr.Number(label="Latitude", precision=5)
+                    np_lon = gr.Number(label="Longitude", precision=5)
+                    gr.Markdown("### Transit Date")
+                    with gr.Row():
+                        np_transit_date = gr.Textbox(
+                            label="Transit Date (YYYY-MM-DD)",
+                            value=datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+                            placeholder="e.g. 2025-06-15",
+                            scale=3,
+                        )
+                        np_today_btn = gr.Button("📅 Today", scale=1, variant="secondary")
+                    np_analyse_btn = gr.Button("🔍 Analyse Protection", variant="primary")
+
+                with gr.Column(scale=2):
+                    np_score_out = gr.HTML(label="Protection Score")
+                    np_table_out = gr.HTML(label="Natal vs Transit Comparison")
+                    gr.HTML(_REFERENCE_HTML)
+
+            np_dasha_out = gr.HTML()
+            gr.Markdown("### 🤖 AI Analysis")
+            np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
+
     # ── Event wiring ──────────────────────────────────────────────────────
     calc_btn.click(
         fn=run_calculations,
@@ -2106,6 +2894,23 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
         outputs=[dasha_out],
     )
 
+    # ── Tab 7: Natal Protection wiring ────────────────────────────────────
+    np_resolve_btn.click(
+        fn=resolve_location,
+        inputs=[np_place],
+        outputs=[np_lat, np_lon, np_location_md],
+    )
+    np_today_btn.click(
+        fn=lambda: datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+        inputs=[],
+        outputs=[np_transit_date],
+    )
+    np_analyse_btn.click(
+        fn=run_protection_analysis,
+        inputs=[np_dob, np_tob, np_lat, np_lon, np_transit_date],
+        outputs=[np_score_out, np_table_out, np_dasha_out, np_ai_out],
+    )
+
     # ── Auto-load on page open ─────────────────────────────────────────────
     # Pre-populate every tab so users see content immediately without
     # having to click "Calculate Transits" first.
@@ -2146,6 +2951,4 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=7860,
         show_error=True,
-        theme=gr.themes.Soft(),
-        css=_GRADIO_CSS,
     )
