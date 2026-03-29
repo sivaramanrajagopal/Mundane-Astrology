@@ -2928,9 +2928,7 @@ def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = No
 # ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Mundane Astrology Dashboard",
-               theme=gr.themes.Soft(),
-               css=_GRADIO_CSS) as demo:
+with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
 
     gr.Markdown(
         "# 🪐 Mundane Astrology Dashboard\n"
@@ -3190,4 +3188,6 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=7860,
         show_error=True,
+        theme=gr.themes.Soft(),
+        css=_GRADIO_CSS,
     )
