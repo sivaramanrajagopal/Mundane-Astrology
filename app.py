@@ -51,6 +51,7 @@ from natal_protection import (
     get_current_dasha_bhukti,
     scan_transit_affliction,
     VIMSHOTTARI_YEARS,
+    check_pushkara,
 )
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -2133,14 +2134,40 @@ def _comparison_table_html(natal: dict, transit: dict,
 
     def _flags(data, is_node=False, is_asc=False):
         parts = []
-        c = data.get("combust", {})
-        g = data.get("gandanta", {})
+        c  = data.get("combust", {})
+        g  = data.get("gandanta", {})
+        pk = data.get("pushkara", {})
         _o = c.get("orb", 0)
 
-        if not is_node and not is_asc:
+        is_hard_afflicted = c.get("deep") or g.get("gandanta")
+        is_divine = pk.get("pushkara") and is_hard_afflicted and not is_asc
+
+        # ── Divine Protection (highest priority badge) ────────────────────────
+        if is_divine:
+            zone = pk.get("zone", "")
+            parts.append(
+                '<span style="color:#ffd700;font-weight:700" '
+                f'title="Pushkara Navamsa ({zone}). '
+                'Planet is Hard Combust or Gandanta — but Pushkara energy neutralises '
+                'the Visha Gati (poisonous movement). Initial loss/struggle transforms '
+                'into unexpected divine recovery. Protection Score +5.">'
+                '🕉️ Divine Protection (Pushkara)</span>'
+            )
+            # Still show the underlying affliction at smaller size for reference
+            if c.get("deep") and not is_node and not is_asc:
+                parts.append(
+                    f'<span style="color:#fc8181;font-size:0.78rem">'
+                    f'(🔥 burnt {_o:.1f}° — neutralised)</span>'
+                )
+            if g.get("gandanta"):
+                jct = g.get("junction", "")
+                parts.append(
+                    f'<span style="color:#b794f4;font-size:0.78rem">'
+                    f'(⚡ Gandanta {jct} — neutralised)</span>'
+                )
+
+        elif not is_node and not is_asc:
             # ── Hidden Strength: combust D1 + Vargottama D9 ──────────────────
-            # A combust planet that is also Vargottama has inner D9 protection.
-            # Surface struggle exists but success is preserved at a deeper level.
             if (c.get("deep") or c.get("combust")) and data.get("vargottama"):
                 parts.append(
                     '<span style="color:#f6e05e;font-weight:600" '
@@ -2162,9 +2189,6 @@ def _comparison_table_html(natal: dict, transit: dict,
                         f'<span style="color:#f6ad55">🔥 Combust ({_o:.1f}°)</span>'
                     )
                 elif c.get("cross_sign") and c.get("would_combust"):
-                    # Within orb but different sign — classical sign-wall exception.
-                    # Suppress entirely when Gandanta is also active:
-                    # Gandanta overrides the sign-wall protection.
                     if not g.get("gandanta"):
                         parts.append(
                             f'<span style="color:#718096;font-size:0.8rem" '
@@ -2177,12 +2201,10 @@ def _comparison_table_html(natal: dict, transit: dict,
                 '<span style="color:#4a5568;font-size:0.78rem">☽☋ No combustion</span>'
             )
 
-        # ── Gandanta ─────────────────────────────────────────────────────────
-        if g.get("gandanta"):
+        # ── Gandanta (skip if Divine Protection already absorbed it) ─────────
+        if g.get("gandanta") and not is_divine:
             jct  = g.get("junction", "")
             gorb = g.get("orb", 0)
-            # If this planet was within a combustion orb but shielded by the sign-wall,
-            # Gandanta still fires — make the override explicit.
             overrides = (
                 not is_node and not is_asc
                 and c.get("cross_sign") and c.get("would_combust")
@@ -2192,13 +2214,23 @@ def _comparison_table_html(natal: dict, transit: dict,
                 label += " — overrides sign-wall"
             parts.append(f'<span style="color:#b794f4">⚡ {label}</span>')
 
-        # ── Vargottama (standalone only — not when merged into Hidden Strength) ──
+        # ── Vargottama (standalone only) ──────────────────────────────────────
         already_merged = (
             not is_node and not is_asc
             and (c.get("deep") or c.get("combust")) and data.get("vargottama")
         )
         if data.get("vargottama") and not already_merged:
             parts.append('<span style="color:#68d391">✨ Vargottama</span>')
+
+        # ── Standalone Pushkara (no hard affliction — just divine grace) ──────
+        if pk.get("pushkara") and not is_divine and not is_asc:
+            zone = pk.get("zone", "")
+            parts.append(
+                f'<span style="color:#90cdf4" '
+                f'title="Pushkara Navamsa: {zone}. '
+                f'Divine grace — planet\'s significations are naturally uplifted.">'
+                f'🕉️ Pushkara</span>'
+            )
 
         return " ".join(parts) if parts else '<span style="color:#4a5568">—</span>'
 
@@ -2395,19 +2427,33 @@ def _natal_status_badge(planet: str, natal_data: dict) -> str:
     """Return a compact HTML badge for a planet's natal protection status."""
     if planet not in natal_data:
         return '<span style="color:#718096">—</span>'
-    d = natal_data[planet]
-    c = d.get("combust", {})
+    d   = natal_data[planet]
+    c   = d.get("combust", {})
+    g   = d.get("gandanta", {})
+    pk  = d.get("pushkara", {})
     is_node = d.get("is_node", False)
-    # Hidden Strength
+
+    is_hard  = c.get("deep") or g.get("gandanta")
+    pk_zone  = pk.get("zone", "")
+    # Divine Protection takes highest priority
+    if pk.get("pushkara") and is_hard and not is_node:
+        return (
+            '<span style="color:#ffd700;font-weight:700" '
+            f'title="{pk_zone}">'
+            '🕉️ Divine Protection</span>'
+        )
+    # Hidden Strength: combust + vargottama
     if not is_node and (c.get("deep") or c.get("combust")) and d.get("vargottama"):
         return '<span style="color:#f6e05e;font-weight:600">🌟 Hidden Strength</span>'
     if not is_node and c.get("deep"):
         return f'<span style="color:#fc8181">🔥 Deep Combust ({c["orb"]:.1f}°)</span>'
     if not is_node and c.get("combust"):
         return f'<span style="color:#f6ad55">🔥 Combust ({c["orb"]:.1f}°)</span>'
-    if d.get("gandanta", {}).get("gandanta"):
-        jct = d["gandanta"].get("junction", "")
+    if g.get("gandanta"):
+        jct = g.get("junction", "")
         return f'<span style="color:#b794f4">⚡ Gandanta ({jct})</span>'
+    if pk.get("pushkara"):
+        return '<span style="color:#90cdf4">🕉️ Pushkara</span>'
     if d.get("vargottama"):
         return '<span style="color:#68d391">✨ Vargottama</span>'
     return '<span style="color:#68d391">🟢 Clear</span>'

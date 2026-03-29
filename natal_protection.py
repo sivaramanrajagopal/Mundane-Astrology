@@ -58,6 +58,49 @@ _GANDANTA_JUNCTIONS = [
 ]
 _GANDANTA_ORB = 10.0 / 3.0   # 3°20' = 3.333°
 
+# ── Pushkara Navamsa zones ─────────────────────────────────────────────────────
+# 24 classical Pushkara Navamsa degree ranges (sidereal, 0–360°).
+# Source: Brihat Parashara Hora Shastra tradition, cross-referenced against
+#         github.com/sivaramanrajagopal/Pushkaranavamsalagnam.
+# Each sign has exactly 2 Pushkara zones (= 24 total across 12 signs).
+# These are navamsas whose D9 sign falls in a Jupiter- or Venus-ruled sign,
+# conferring divine grace — especially when a combust/Gandanta planet sits here,
+# its "Visha Gati" (poisonous movement) is neutralised.
+_PUSHKARA_ZONES = [
+    # ── Fire signs: Aries (0°), Leo (120°), Sagittarius (240°) ───────────────
+    # 7th navamsa (Libra D9, Venus) and 9th navamsa (Sagittarius D9, Jupiter)
+    {"start":  20.00, "end":  23.33, "sign": "Aries",       "nakshatra": "Bharani",           "pada": 3, "nak_lord": "Venus"},
+    {"start":  26.67, "end":  30.00, "sign": "Aries",       "nakshatra": "Krittika",          "pada": 1, "nak_lord": "Sun"},
+    {"start": 140.00, "end": 143.33, "sign": "Leo",         "nakshatra": "Purva Phalguni",    "pada": 3, "nak_lord": "Venus"},
+    {"start": 146.67, "end": 150.00, "sign": "Leo",         "nakshatra": "Uttara Phalguni",   "pada": 1, "nak_lord": "Sun"},
+    {"start": 260.00, "end": 263.33, "sign": "Sagittarius", "nakshatra": "Purva Ashadha",     "pada": 3, "nak_lord": "Venus"},
+    {"start": 266.67, "end": 270.00, "sign": "Sagittarius", "nakshatra": "Uttara Ashadha",    "pada": 1, "nak_lord": "Sun"},
+    # ── Earth signs: Taurus (30°), Virgo (150°), Capricorn (270°) ────────────
+    # 3rd navamsa (Pisces D9, Jupiter) and 5th navamsa (Taurus D9, Venus)
+    {"start":  36.67, "end":  40.00, "sign": "Taurus",      "nakshatra": "Krittika",          "pada": 4, "nak_lord": "Sun"},
+    {"start":  43.33, "end":  46.67, "sign": "Taurus",      "nakshatra": "Rohini",            "pada": 2, "nak_lord": "Moon"},
+    {"start": 156.67, "end": 160.00, "sign": "Virgo",       "nakshatra": "Uttara Phalguni",   "pada": 4, "nak_lord": "Sun"},
+    {"start": 163.33, "end": 166.67, "sign": "Virgo",       "nakshatra": "Hasta",             "pada": 2, "nak_lord": "Moon"},
+    {"start": 276.67, "end": 280.00, "sign": "Capricorn",   "nakshatra": "Uttara Ashadha",    "pada": 4, "nak_lord": "Sun"},
+    {"start": 283.33, "end": 286.67, "sign": "Capricorn",   "nakshatra": "Shravana",          "pada": 2, "nak_lord": "Moon"},
+    # ── Air signs: Gemini (60°), Libra (180°), Aquarius (300°) ───────────────
+    # 6th navamsa (Pisces D9, Jupiter) and 8th navamsa (Taurus D9, Venus)
+    {"start":  76.67, "end":  80.00, "sign": "Gemini",      "nakshatra": "Ardra",             "pada": 4, "nak_lord": "Rahu"},
+    {"start":  83.33, "end":  86.67, "sign": "Gemini",      "nakshatra": "Punarvasu",         "pada": 2, "nak_lord": "Jupiter"},
+    {"start": 196.67, "end": 200.00, "sign": "Libra",       "nakshatra": "Swati",             "pada": 4, "nak_lord": "Rahu"},
+    {"start": 203.33, "end": 206.67, "sign": "Libra",       "nakshatra": "Vishakha",          "pada": 2, "nak_lord": "Jupiter"},
+    {"start": 316.67, "end": 320.00, "sign": "Aquarius",    "nakshatra": "Shatabhisha",       "pada": 4, "nak_lord": "Rahu"},
+    {"start": 323.33, "end": 326.67, "sign": "Aquarius",    "nakshatra": "Purva Bhadrapada",  "pada": 2, "nak_lord": "Jupiter"},
+    # ── Water signs: Cancer (90°), Scorpio (210°), Pisces (330°) ─────────────
+    # 1st navamsa (Cancer D9, Moon) and 3rd navamsa (Virgo D9 — but Jupiter-axis)
+    {"start":  90.00, "end":  93.33, "sign": "Cancer",      "nakshatra": "Punarvasu",         "pada": 4, "nak_lord": "Jupiter"},
+    {"start":  96.67, "end": 100.00, "sign": "Cancer",      "nakshatra": "Pushya",            "pada": 2, "nak_lord": "Saturn"},
+    {"start": 210.00, "end": 213.33, "sign": "Scorpio",     "nakshatra": "Vishakha",          "pada": 4, "nak_lord": "Jupiter"},
+    {"start": 216.67, "end": 220.00, "sign": "Scorpio",     "nakshatra": "Anuradha",          "pada": 2, "nak_lord": "Saturn"},
+    {"start": 330.00, "end": 333.33, "sign": "Pisces",      "nakshatra": "Purva Bhadrapada",  "pada": 4, "nak_lord": "Jupiter"},
+    {"start": 336.67, "end": 340.00, "sign": "Pisces",      "nakshatra": "Uttara Bhadrapada", "pada": 2, "nak_lord": "Saturn"},
+]
+
 # ── Nakshatra / Pada constants ─────────────────────────────────────────────
 _NAK_SPAN  = 360.0 / 27       # 13.333...° per nakshatra
 _PADA_SPAN = _NAK_SPAN / 4    # 3.333...°  per pada (quarter)
@@ -195,6 +238,48 @@ def check_vargottama(natal_longitude: float) -> bool:
     d1_sign = int(natal_longitude / 30) % 12
     d9_sign = _get_navamsa_sign(natal_longitude)
     return d1_sign == d9_sign
+
+
+def check_pushkara(planet_lon: float) -> dict:
+    """
+    Check if a planet occupies one of the 24 classical Pushkara Navamsa zones.
+
+    Pushkara Navamsas are specific navamsa divisions (3°20' wide) whose D9 sign
+    falls in a Jupiter- or Venus-ruled sign, conferring divine grace and protection.
+
+    Key significance — "Visha Gati neutralised":
+      If a planet is deeply combust OR in Gandanta (Visha Gati — poisonous movement),
+      but also sits in a Pushkara Navamsa, the affliction is overridden by divine grace.
+      The native faces initial struggle but experiences unexpected recovery or success.
+
+    Returns:
+        pushkara   (bool):  True if the planet is in a Pushkara Navamsa zone
+        zone       (str):   Descriptive zone string, e.g. "Leo 140.00°–143.33° (Purva Phalguni Pada 3)"
+        sign       (str):   Sign name
+        nakshatra  (str):   Nakshatra name of this zone
+        pada       (int):   Pada number (1–4) within the nakshatra
+        nak_lord   (str):   Nakshatra lord
+    """
+    lon = planet_lon % 360.0
+    for z in _PUSHKARA_ZONES:
+        if z["start"] <= lon < z["end"]:
+            return {
+                "pushkara":  True,
+                "zone":      (f"{z['sign']} {z['start']:.2f}°–{z['end']:.2f}° "
+                              f"({z['nakshatra']} Pada {z['pada']})"),
+                "sign":      z["sign"],
+                "nakshatra": z["nakshatra"],
+                "pada":      z["pada"],
+                "nak_lord":  z["nak_lord"],
+            }
+    return {
+        "pushkara":  False,
+        "zone":      "",
+        "sign":      "",
+        "nakshatra": "",
+        "pada":      0,
+        "nak_lord":  "",
+    }
 
 
 def _get_planet_state(planet_name: str, rasi_tamil: str) -> str:
@@ -585,6 +670,7 @@ class AstrologyProtection:
             combust_info   = check_combustion(sun_lon, lon_raw, planet_name, retro)
             gandanta_info  = check_gandanta(lon_raw)
             is_vargottama  = check_vargottama(lon_raw)
+            pushkara_info  = check_pushkara(lon_raw)
             planet_state   = _get_planet_state(planet_name, rasi_tamil)
             navamsa_idx    = _get_navamsa_sign(lon_raw)
             nak_name, pada, nak_lord = _get_nakshatra_pada(lon_raw)
@@ -602,6 +688,7 @@ class AstrologyProtection:
                 "combust":         combust_info,
                 "gandanta":        gandanta_info,
                 "vargottama":      is_vargottama,
+                "pushkara":        pushkara_info,
                 "nakshatra":       nak_name,
                 "pada":            pada,
                 "nakshatra_lord":  nak_lord,
@@ -638,6 +725,7 @@ class AstrologyProtection:
                 "combust":        _NO_COMBUST,
                 "gandanta":       check_gandanta(node_lon),
                 "vargottama":     check_vargottama(node_lon),
+                "pushkara":       check_pushkara(node_lon),
                 "nakshatra":      n_nak,
                 "pada":           n_pada,
                 "nakshatra_lord": n_lord,
@@ -668,6 +756,7 @@ class AstrologyProtection:
             # TODO: Lagna Vargottama is classically significant (Parashara Ch.27).
             # Compute navamsa sign from asc_lon and set True when D1 == D9 sign.
             "vargottama":     False,
+            "pushkara":       check_pushkara(asc_lon),
             "nakshatra":      a_nak,
             "pada":           a_pada,
             "nakshatra_lord": a_lord,
@@ -711,6 +800,7 @@ class AstrologyProtection:
 
             combust_info  = check_combustion(sun_lon, lon_raw, planet_name, retro)
             gandanta_info = check_gandanta(lon_raw)
+            pushkara_info = check_pushkara(lon_raw)
             planet_state  = _get_planet_state(planet_name, RASIS[data["sign_index"]])
             nak_name, pada, nak_lord = _get_nakshatra_pada(lon_raw)
 
@@ -722,6 +812,7 @@ class AstrologyProtection:
                 "state":          planet_state,
                 "combust":        combust_info,
                 "gandanta":       gandanta_info,
+                "pushkara":       pushkara_info,
                 "nakshatra":      nak_name,
                 "pada":           pada,
                 "nakshatra_lord": nak_lord,
@@ -751,6 +842,7 @@ class AstrologyProtection:
                 "state":          _get_nodal_state(node_name, n_rasi),
                 "combust":        _NO_COMBUST,
                 "gandanta":       check_gandanta(node_lon),
+                "pushkara":       check_pushkara(node_lon),
                 "nakshatra":      n_nak,
                 "pada":           n_pada,
                 "nakshatra_lord": n_lord,
@@ -778,16 +870,24 @@ class AstrologyProtection:
             if planet_name in ("Sun", "Ascendant"):
                 continue          # Sun cannot be combust; Ascendant is a point not a planet
             c = data.get("combust", {})
+            g = data.get("gandanta", {})
+            p = data.get("pushkara", {})
+            is_hard_afflicted = (c.get("deep") or g.get("gandanta"))
+            is_divine_protected = p.get("pushkara") and is_hard_afflicted
+
             # Combustion only penalises physical planets (not nodes — they are shadow)
             if not data.get("is_node"):
                 if c.get("deep"):
                     score -= 2
                 elif c.get("combust"):
                     score -= 1
-            if data.get("gandanta", {}).get("gandanta"):
+            if g.get("gandanta"):
                 score -= 2        # gandanta applies to planets AND nodes
             if data.get("vargottama"):
                 score += 2        # vargottama applies to planets AND nodes
+            if is_divine_protected:
+                # Pushkara Navamsa neutralises Visha Gati — divine grace overrides the affliction
+                score += 5
         return max(1, min(10, score))
 
     # ── AI Analysis ──────────────────────────────────────────────────────────
@@ -850,28 +950,45 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
     ]
     for planet, data in natal.items():
         flags = []
+        c = data["combust"]
+        g = data["gandanta"]
+        pk = data.get("pushkara", {})
+        is_hard_afflicted = (c.get("deep") or g.get("gandanta"))
+        is_divine = pk.get("pushkara") and is_hard_afflicted
+
         if planet != "Sun":
-            c = data["combust"]
-            is_hidden = (c.get("deep") or c.get("combust")) and data.get("vargottama")
-            if is_hidden:
-                # Combust D1 + Vargottama D9 — the most important combined signal
+            if is_divine:
+                # Highest override — Pushkara neutralises Visha Gati
                 flags.append(
-                    "🌟 HIDDEN STRENGTH — Combust D1 but Vargottama D9: "
-                    "temporary surface struggle, inner D9 protection active; "
-                    "setback precedes deep success"
+                    f"🕉️ DIVINE PROTECTION — Planet in Pushkara Navamsa "
+                    f"({pk.get('zone', '')}). "
+                    f"Visha Gati (poisonous movement) neutralised: "
+                    f"initial struggle/loss transforms into unexpected divine recovery. "
+                    f"Protection Score +5."
                 )
             else:
-                if c.get("deep"):
-                    flags.append(f"DEEP COMBUST ({c['orb']:.1f}°)")
-                elif c.get("combust"):
-                    flags.append(f"Combust ({c['orb']:.1f}°)")
-                if data.get("vargottama"):
-                    flags.append("Vargottama ✨")
-        if data["gandanta"]["gandanta"]:
-            g = data["gandanta"]
+                is_hidden = (c.get("deep") or c.get("combust")) and data.get("vargottama")
+                if is_hidden:
+                    # Combust D1 + Vargottama D9 — the most important combined signal
+                    flags.append(
+                        "🌟 HIDDEN STRENGTH — Combust D1 but Vargottama D9: "
+                        "temporary surface struggle, inner D9 protection active; "
+                        "setback precedes deep success"
+                    )
+                else:
+                    if c.get("deep"):
+                        flags.append(f"DEEP COMBUST ({c['orb']:.1f}°)")
+                    elif c.get("combust"):
+                        flags.append(f"Combust ({c['orb']:.1f}°)")
+                    if data.get("vargottama"):
+                        flags.append("Vargottama ✨")
+                    if pk.get("pushkara"):
+                        flags.append(f"🕉️ Pushkara Navamsa ({pk.get('zone','')}): "
+                                     f"divine grace — planet's significations are uplifted")
+        if g["gandanta"] and not is_divine:
             g_label = f"Gandanta ({g['junction']}, {g['orb']:.1f}°)"
             # Note if Gandanta overrides the sign-wall on a cross-sign planet
-            if data["combust"].get("cross_sign") and data["combust"].get("would_combust"):
+            if c.get("cross_sign") and c.get("would_combust"):
                 g_label += " [overrides sign-wall]"
             flags.append(g_label)
         flag_str = ", ".join(flags) if flags else "Clear"
@@ -894,13 +1011,24 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
             continue
         flags = []
         is_node = data.get("is_node", False)
-        if planet != "Sun" and not is_node:
-            if data["combust"]["deep"]:
-                flags.append(f"DEEP COMBUST ({data['combust']['orb']:.1f}°)")
-            elif data["combust"]["combust"]:
-                flags.append(f"Combust ({data['combust']['orb']:.1f}°)")
-        if data["gandanta"]["gandanta"]:
-            flags.append(f"Gandanta ({data['gandanta']['junction']})")
+        t_pk = data.get("pushkara", {})
+        t_is_hard = (data["combust"].get("deep") or data["gandanta"]["gandanta"])
+        t_is_divine = t_pk.get("pushkara") and t_is_hard
+        if t_is_divine:
+            flags.append(
+                f"🕉️ DIVINE PROTECTION in transit — Pushkara Navamsa "
+                f"({t_pk.get('zone','')}) neutralises affliction"
+            )
+        else:
+            if planet != "Sun" and not is_node:
+                if data["combust"]["deep"]:
+                    flags.append(f"DEEP COMBUST ({data['combust']['orb']:.1f}°)")
+                elif data["combust"]["combust"]:
+                    flags.append(f"Combust ({data['combust']['orb']:.1f}°)")
+            if data["gandanta"]["gandanta"]:
+                flags.append(f"Gandanta ({data['gandanta']['junction']})")
+            if t_pk.get("pushkara"):
+                flags.append(f"🕉️ Pushkara Navamsa ({t_pk.get('zone','')})")
         flag_str = ", ".join(flags) if flags else "Clear"
         nak_str  = f"{data.get('nakshatra','?')} Pada {data.get('pada','?')} (lord: {data.get('nakshatra_lord','?')})"
         lines.append(
@@ -938,26 +1066,56 @@ def _build_fallback_analysis(natal: dict, transit: dict, score: int) -> str:
     all_combust = [p for p, d in natal.items()
                    if p != "Sun" and d["combust"]["combust"]]
 
+    # Divine Protection: hard affliction (deep combust / gandanta) + Pushkara Navamsa
+    divine_list = [
+        p for p, d in natal.items()
+        if p not in ("Sun", "Ascendant")
+        and d.get("pushkara", {}).get("pushkara")
+        and (d["combust"].get("deep") or d["gandanta"]["gandanta"])
+    ]
     # Hidden Strength: combust D1 + Vargottama D9 — separate special category
     hidden_strength_list = [
         p for p in all_combust
-        if natal[p].get("vargottama")
+        if natal[p].get("vargottama") and p not in divine_list
     ]
-    # Plain combust (no D9 protection)
-    plain_combust_list = [p for p in all_combust if p not in hidden_strength_list]
+    # Standalone Pushkara (no hard affliction — just divine grace)
+    pushkara_standalone = [
+        p for p, d in natal.items()
+        if p not in ("Sun", "Ascendant")
+        and d.get("pushkara", {}).get("pushkara")
+        and p not in divine_list
+    ]
+    # Plain combust (no relief of any kind)
+    plain_combust_list = [
+        p for p in all_combust
+        if p not in hidden_strength_list and p not in divine_list
+    ]
 
-    gandanta_list    = [p for p, d in natal.items() if d["gandanta"]["gandanta"]]
-    vargottama_list  = [p for p, d in natal.items()
-                        if d["vargottama"] and p not in hidden_strength_list]
+    gandanta_list   = [p for p, d in natal.items()
+                       if d["gandanta"]["gandanta"] and p not in divine_list]
+    vargottama_list = [p for p, d in natal.items()
+                       if d["vargottama"] and p not in hidden_strength_list and p not in divine_list]
 
+    if divine_list:
+        lines.append(
+            f"- 🕉️ **Divine Protection** (Pushkara Navamsa neutralises Visha Gati — +5 score): "
+            f"{', '.join(divine_list)}. "
+            f"Initial struggle is real but divine grace ensures unexpected recovery."
+        )
     if hidden_strength_list:
         lines.append(
             f"- 🌟 **Hidden Strength** (combust D1 but Vargottama D9 — inner protection active): "
             f"{', '.join(hidden_strength_list)}. "
             f"These planets cause visible struggle but carry concealed success in the D9."
         )
+    if pushkara_standalone:
+        lines.append(
+            f"- 🕉️ **Pushkara Navamsa** (divine grace, no active affliction): "
+            f"{', '.join(pushkara_standalone)}. "
+            f"Planet's significations are uplifted and supported by higher forces."
+        )
     if plain_combust_list:
-        lines.append(f"- **Combust planets** (weakened, no D9 relief): {', '.join(plain_combust_list)}")
+        lines.append(f"- **Combust planets** (weakened, no relief): {', '.join(plain_combust_list)}")
     if gandanta_list:
         lines.append(f"- **Gandanta planets** (karmic knots — stability compromised): "
                      f"{', '.join(gandanta_list)}")
@@ -968,15 +1126,27 @@ def _build_fallback_analysis(natal: dict, transit: dict, score: int) -> str:
     lines.append(f"- Overall Protection Score: **{score}/10**")
 
     lines += ["\n## Live Transit Alerts\n"]
-    transit_combust = [p for p, d in transit.items()
-                       if d and p != "Sun" and not d.get("is_node") and d["combust"]["combust"]]
+    transit_divine   = [p for p, d in transit.items()
+                        if d and d.get("pushkara", {}).get("pushkara")
+                        and (d["combust"].get("deep") or d["gandanta"]["gandanta"])]
+    transit_combust  = [p for p, d in transit.items()
+                        if d and p != "Sun" and not d.get("is_node")
+                        and d["combust"]["combust"] and p not in transit_divine]
     transit_gandanta = [p for p, d in transit.items()
-                        if d and d["gandanta"]["gandanta"]]
+                        if d and d["gandanta"]["gandanta"] and p not in transit_divine]
+    transit_pushkara = [p for p, d in transit.items()
+                        if d and d.get("pushkara", {}).get("pushkara") and p not in transit_divine]
+    if transit_divine:
+        lines.append(f"- 🕉️ Transit planets with Divine Protection (Pushkara overrides affliction): "
+                     f"{', '.join(transit_divine)}")
     if transit_combust:
         lines.append(f"- Transit planets currently combust: {', '.join(transit_combust)}")
     if transit_gandanta:
         lines.append(f"- Transit planets in Gandanta: {', '.join(transit_gandanta)}")
-    if not transit_combust and not transit_gandanta:
+    if transit_pushkara:
+        lines.append(f"- 🕉️ Transit planets in Pushkara Navamsa (divine support): "
+                     f"{', '.join(transit_pushkara)}")
+    if not transit_combust and not transit_gandanta and not transit_divine:
         lines.append("- No major transit afflictions active today.")
 
     lines += ["\n## Action Windows\n",
