@@ -2146,7 +2146,8 @@ def _comparison_table_html(natal: dict, transit: dict,
                     '<span style="color:#f6e05e;font-weight:600" '
                     'title="Combust in D1 (rasi) but Vargottama in D9 (navamsa). '
                     'Surface struggle exists — inner protection active. '
-                    'Temporary setback followed by deep success.">'
+                    'Temporary setback followed by deep success. '
+                    '(per Parashara tradition)">'
                     '🌟 Hidden Strength (Combust + Vargottama)</span>'
                 )
             else:
@@ -2421,8 +2422,10 @@ def _transit_alert_badge(scan: dict) -> str:
         exits = scan["exits_in_days"]
         col   = "#fc8181" if "Deep" in aff or "Gandanta" in aff else "#f6ad55"
         badge = f'<span style="color:{col}">⚠️ {aff} now</span>'
-        if exits < 365:
+        if exits is not None:
             badge += f'<br><span style="color:#718096;font-size:0.78rem">exits in ~{exits} days</span>'
+        else:
+            badge += '<br><span style="color:#718096;font-size:0.78rem">active beyond 12-month horizon</span>'
         # Next event after exit
         if scan.get("next_entry_date"):
             badge += (f'<br><span style="color:#718096;font-size:0.78rem">'
@@ -2666,6 +2669,14 @@ def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = No
             scan_bhukti = scan_transit_affliction(db["bhukti"]["lord"], now_utc)
             dasha_html  = _dasha_panel_html(db, ap.natal_data,
                                              scan_maha, scan_bhukti, td_str)
+        else:
+            dasha_html = (
+                '<div style="padding:1rem;color:#f6ad55">'
+                '⚠️ Dasha period not found: the reference date falls outside '
+                'the 120-year Vimshottari cycle computed from this birth date. '
+                'Check that the birth date and time are correct.'
+                '</div>'
+            )
 
         ai_text = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)
         return score_html, table_html, dasha_html, ai_text

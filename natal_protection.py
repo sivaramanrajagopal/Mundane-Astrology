@@ -116,6 +116,10 @@ def check_combustion(sun_deg: float, planet_deg: float,
 
     orb = COMBUSTION_ORB.get(planet_name, 14.0)
     if planet_name == "Mercury" and is_retrograde:
+        # Parashara uses 12° for retrograde Mercury.
+        # Note: some schools (Mantreshwara, KP) hold that retrograde Mercury
+        # near the Sun is actually STRONGER (Atmakaraka proximity), not combust.
+        # This implementation follows the Parashara / BPHS convention.
         orb = 12.0
 
     dist = _angular_distance(sun_deg, planet_deg)
@@ -364,7 +368,7 @@ def scan_transit_affliction(planet_name: str,
     is_node  = planet_name in ("Rahu", "Ketu")
     pid      = _PLANET_IDS.get(planet_name)     # None for Rahu/Ketu (handled separately)
 
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    # swe.set_sid_mode is set once at module level (SIDM_LAHIRI); no need to repeat here.
     ref_jd = swe.julday(reference_dt.year, reference_dt.month, reference_dt.day,
                          reference_dt.hour + reference_dt.minute / 60.0)
 
@@ -385,7 +389,7 @@ def scan_transit_affliction(planet_name: str,
         # Combustion — only for physical planets (not nodes, not Sun)
         if not is_node and planet_name != "Sun":
             sun_lon = swe.calc_ut(jd, swe.SUN, _FLAGS)[0][0]
-            p_retro = swe.calc_ut(jd, pid, _FLAGS)[0][3] < 0
+            p_retro = p_xx[3] < 0   # reuse already-fetched result — no duplicate SWE call
             c = check_combustion(sun_lon, p_lon, planet_name, p_retro)
             if c.get("deep"):
                 return "Deep Combust"
@@ -398,16 +402,19 @@ def scan_transit_affliction(planet_name: str,
     currently_afflicted = current_aff != "Clear"
 
     if currently_afflicted:
-        # Find when current affliction ends
-        exits_in_days = days_ahead   # fallback: still active at horizon
+        # Find when current affliction ends.
+        # None = still active at the scan horizon (not "365 days") — callers
+        # must treat None explicitly so the display doesn't show a misleading number.
+        exits_in_days = None
         for d in range(1, days_ahead + 1):
             if _affliction_at(ref_jd + d) == "Clear":
                 exits_in_days = d
                 break
 
-        # Find next entry after exit
+        # Find next entry after exit (only if an exit was found)
         next_entry_days = next_entry_date = next_entry_type = None
-        for d in range(exits_in_days + 1, days_ahead + 1):
+        scan_from = (exits_in_days + 1) if exits_in_days is not None else days_ahead + 1
+        for d in range(scan_from, days_ahead + 1):
             aff = _affliction_at(ref_jd + d)
             if aff != "Clear":
                 next_entry_days = d
@@ -418,6 +425,7 @@ def scan_transit_affliction(planet_name: str,
         return {
             "currently_afflicted": True,
             "affliction_type":     current_aff,
+            # exits_in_days is None when affliction persists beyond the scan horizon
             "exits_in_days":       exits_in_days,
             "next_entry_days":     next_entry_days,
             "next_entry_date":     next_entry_date,
@@ -552,7 +560,9 @@ class AstrologyProtection:
         Calculate natal planet positions for all 7 Vedic planets.
         Returns a dict keyed by planet name with full Vedic analysis.
         """
-        utc_dt = local_to_utc(self.birth_date, self.birth_time, self.lat, self.lon)
+        # Reuse _birth_utc set in __init__ — avoids a redundant TimezoneFinder
+        # lookup and a second call to local_to_utc for the same coordinates.
+        utc_dt   = self._birth_utc
         hour_dec = utc_dt.hour + utc_dt.minute / 60.0 + utc_dt.second / 3600.0
         jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, hour_dec)
 
@@ -598,7 +608,12 @@ class AstrologyProtection:
             }
 
         # ── Rahu (True Node) and Ketu (always 180° opposite) ──────────────────
-        _NO_COMBUST = {"combust": False, "deep": False, "orb": 0.0, "na": True}
+        # Full schema — matches check_combustion() return dict so all callers can
+        # use direct key access safely, not just .get() with silent None returns.
+        _NO_COMBUST = {
+            "combust": False, "deep": False, "orb": 0.0,
+            "cross_sign": False, "would_combust": False, "na": True,
+        }
         rahu_xx   = swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)[0]
         rahu_lon  = rahu_xx[0]
         rahu_spd  = rahu_xx[3]
@@ -650,6 +665,8 @@ class AstrologyProtection:
             "state":          "Lagna",
             "combust":        _NO_COMBUST,
             "gandanta":       check_gandanta(asc_lon),
+            # TODO: Lagna Vargottama is classically significant (Parashara Ch.27).
+            # Compute navamsa sign from asc_lon and set True when D1 == D9 sign.
             "vargottama":     False,
             "nakshatra":      a_nak,
             "pada":           a_pada,
@@ -679,7 +696,7 @@ class AstrologyProtection:
         raw = get_transit_data(now_utc)
 
         # Sun longitude for combustion checks on the transit date
-        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        # (swe.set_sid_mode(SIDM_LAHIRI) already called once at module level)
         jd_now  = swe.julday(now_utc.year, now_utc.month, now_utc.day,
                               now_utc.hour + now_utc.minute / 60.0)
         sun_lon = swe.calc_ut(jd_now, swe.SUN, _FLAGS)[0][0]
@@ -711,7 +728,12 @@ class AstrologyProtection:
             }
 
         # ── Transit Rahu/Ketu ──────────────────────────────────────────────────
-        _NO_COMBUST = {"combust": False, "deep": False, "orb": 0.0, "na": True}
+        # Full schema — matches check_combustion() return dict so all callers can
+        # use direct key access safely, not just .get() with silent None returns.
+        _NO_COMBUST = {
+            "combust": False, "deep": False, "orb": 0.0,
+            "cross_sign": False, "would_combust": False, "na": True,
+        }
         rahu_xx  = swe.calc_ut(jd_now, swe.TRUE_NODE, _FLAGS)[0]
         rahu_lon = rahu_xx[0]
         ketu_lon = (rahu_lon + 180.0) % 360.0
