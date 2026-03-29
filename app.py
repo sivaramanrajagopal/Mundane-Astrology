@@ -42,6 +42,11 @@ from predictor import (
     _text_to_bullets,
     PLANET_ORDER,
 )
+from natal_protection import (
+    AstrologyProtection,
+    geocode_place,
+    NATAL_PLANETS,
+)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 COUNTRIES      = list(COUNTRY_LAGNAS.keys())
@@ -1946,6 +1951,136 @@ def dasha_timeline(dt_input, country):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tab 7: Natal Protection — backend functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def resolve_location(place_name: str):
+    """Geocode a place name and return (lat, lon, status_markdown)."""
+    if not place_name.strip():
+        return None, None, "_Enter a place name above._"
+    lat, lon, display = geocode_place(place_name.strip())
+    if lat is None:
+        return None, None, f"⚠️ {display}"
+    return round(lat, 5), round(lon, 5), f"📍 **{display}**  \n`{lat:.4f}°, {lon:.4f}°`"
+
+
+def _protection_score_html(score: int) -> str:
+    """Render a colored Protection Score badge."""
+    if score <= 4:
+        color, label = "#e53e3e", "Low"
+    elif score <= 6:
+        color, label = "#dd6b20", "Moderate"
+    else:
+        color, label = "#38a169", "Strong"
+    return (
+        f'<div style="text-align:center;padding:16px">'
+        f'<div style="display:inline-block;background:{color};color:#fff;'
+        f'border-radius:12px;padding:12px 32px;font-size:2rem;font-weight:700">'
+        f'{score}/10</div>'
+        f'<p style="margin:8px 0 0;font-size:1.1rem;color:{color};font-weight:600">'
+        f'{label} Protection</p>'
+        f'</div>'
+    )
+
+
+def _comparison_table_html(natal: dict, transit: dict) -> str:
+    """Build a side-by-side natal vs transit HTML comparison table."""
+    rows = []
+    for planet in NATAL_PLANETS:
+        n = natal.get(planet, {})
+        t = transit.get(planet, {})
+        if not n or not t:
+            continue
+
+        # Natal flags
+        n_flags = []
+        if planet != "Sun":
+            if n["combust"]["deep"]:
+                n_flags.append('<span style="color:#e53e3e;font-weight:600">🔥 Deep Combust</span>')
+            elif n["combust"]["combust"]:
+                n_flags.append('<span style="color:#dd6b20">🔥 Combust</span>')
+        if n["gandanta"]["gandanta"]:
+            n_flags.append('<span style="color:#805ad5">⚡ Gandanta</span>')
+        if n["vargottama"]:
+            n_flags.append('<span style="color:#2b6cb0">✨ Vargottama</span>')
+        n_flag_str = " ".join(n_flags) if n_flags else '<span style="color:#718096">—</span>'
+
+        # Transit flags
+        t_flags = []
+        if planet != "Sun":
+            if t["combust"]["deep"]:
+                t_flags.append('<span style="color:#e53e3e;font-weight:600">🔥 Deep Combust</span>')
+            elif t["combust"]["combust"]:
+                t_flags.append('<span style="color:#dd6b20">🔥 Combust</span>')
+        if t["gandanta"]["gandanta"]:
+            t_flags.append('<span style="color:#805ad5">⚡ Gandanta</span>')
+        t_flag_str = " ".join(t_flags) if t_flags else '<span style="color:#718096">—</span>'
+
+        retro_n = " ℞" if n["retrograde"] else ""
+        retro_t = " ℞" if t["retrograde"] else ""
+
+        rows.append(
+            f"<tr>"
+            f"<td style='font-weight:600'>{planet}</td>"
+            f"<td>{n['longitude']:.2f}°{retro_n}</td>"
+            f"<td>{n['sign']}</td>"
+            f"<td>{n['state']}</td>"
+            f"<td>{n_flag_str}</td>"
+            f"<td style='border-left:2px solid #e2e8f0'>{t['longitude']:.2f}°{retro_t}</td>"
+            f"<td>{t['sign']}</td>"
+            f"<td>{t['state']}</td>"
+            f"<td>{t_flag_str}</td>"
+            f"</tr>"
+        )
+
+    header = (
+        "<thead><tr style='background:#2d3748;color:#fff'>"
+        "<th>Planet</th>"
+        "<th colspan='4' style='text-align:center;border-right:2px solid #4a5568'>Natal</th>"
+        "<th colspan='4' style='text-align:center'>Transit (Live)</th>"
+        "</tr>"
+        "<tr style='background:#4a5568;color:#e2e8f0;font-size:0.85rem'>"
+        "<th></th>"
+        "<th>Longitude</th><th>Sign</th><th>State</th><th>Flags</th>"
+        "<th style='border-left:2px solid #718096'>Longitude</th>"
+        "<th>Sign</th><th>State</th><th>Flags</th>"
+        "</tr></thead>"
+    )
+    body = "<tbody>" + "".join(rows) + "</tbody>"
+    return (
+        "<div style='overflow-x:auto'>"
+        "<table style='width:100%;border-collapse:collapse;font-size:0.9rem'>"
+        + header + body +
+        "</table></div>"
+    )
+
+
+def run_protection_analysis(dob: str, tob: str, lat, lon):
+    """
+    Tab 7 main compute function.
+    Returns (score_html, table_html, ai_markdown).
+    """
+    try:
+        if not dob or not tob:
+            msg = "⚠️ Please enter Date of Birth and Time of Birth."
+            return msg, msg, msg
+        if lat is None or lon is None:
+            return (
+                "⚠️ Location required.",
+                "⚠️ Click 'Resolve Location' or enter Latitude/Longitude manually.",
+                "",
+            )
+        ap    = AstrologyProtection(str(dob), str(tob), float(lat), float(lon))
+        score_html = _protection_score_html(ap.protection_score)
+        table_html = _comparison_table_html(ap.natal_data, ap.transit_data)
+        ai_text    = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)
+        return score_html, table_html, ai_text
+    except Exception as exc:
+        err = f"⚠️ Error: {exc}"
+        return err, err, err
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
 with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
@@ -2054,6 +2189,36 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
             )
             dasha_out = gr.HTML(label="📅 Dasha & Bhukti Timeline")
 
+        # ── Tab 7: Natal Protection Analysis ──────────────────────────────────
+        with gr.Tab("🛡️ Natal Protection"):
+            gr.Markdown(
+                "Enter your birth details to calculate your **Vedic Protection Score** "
+                "(1–10). Checks combustion, Gandanta, and Vargottama for all 7 natal "
+                "planets and compares them side-by-side with live transit positions. "
+                "AI generates personalised alerts and action windows."
+            )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("### Birth Details")
+                    np_dob  = gr.Textbox(label="Date of Birth (YYYY-MM-DD)",
+                                         placeholder="e.g. 1978-09-18")
+                    np_tob  = gr.Textbox(label="Time of Birth (HH:MM, 24h)",
+                                         placeholder="e.g. 17:35")
+                    np_place = gr.Textbox(label="Place of Birth",
+                                          placeholder="e.g. Chennai, India")
+                    np_resolve_btn = gr.Button("📍 Resolve Location", variant="secondary")
+                    np_location_md = gr.Markdown("_Enter a place name and click Resolve._")
+                    np_lat = gr.Number(label="Latitude", precision=5)
+                    np_lon = gr.Number(label="Longitude", precision=5)
+                    np_analyse_btn = gr.Button("🔍 Analyse Protection", variant="primary")
+
+                with gr.Column(scale=2):
+                    np_score_out = gr.HTML(label="Protection Score")
+                    np_table_out = gr.HTML(label="Natal vs Transit Comparison")
+
+            gr.Markdown("### AI Analysis")
+            np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
+
     # ── Event wiring ──────────────────────────────────────────────────────
     calc_btn.click(
         fn=run_calculations,
@@ -2104,6 +2269,18 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
         fn=dasha_timeline,
         inputs=[date_input, country_dd6],
         outputs=[dasha_out],
+    )
+
+    # ── Tab 7: Natal Protection wiring ────────────────────────────────────
+    np_resolve_btn.click(
+        fn=resolve_location,
+        inputs=[np_place],
+        outputs=[np_lat, np_lon, np_location_md],
+    )
+    np_analyse_btn.click(
+        fn=run_protection_analysis,
+        inputs=[np_dob, np_tob, np_lat, np_lon],
+        outputs=[np_score_out, np_table_out, np_ai_out],
     )
 
     # ── Auto-load on page open ─────────────────────────────────────────────
