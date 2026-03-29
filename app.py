@@ -46,6 +46,7 @@ from natal_protection import (
     AstrologyProtection,
     geocode_place,
     NATAL_PLANETS,
+    ALL_DISPLAY_PLANETS,
 )
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -1998,102 +1999,131 @@ def _protection_score_html(score: int) -> str:
     )
 
 
-def _comparison_table_html(natal: dict, transit: dict) -> str:
-    """Build a side-by-side natal vs transit HTML comparison table (with Nakshatra & Pada)."""
+_PLANET_ICONS = {
+    "Ascendant": "⬆️", "Sun": "☀️", "Moon": "🌙", "Mars": "♂️",
+    "Mercury": "☿", "Jupiter": "♃", "Venus": "♀️", "Saturn": "♄",
+    "Rahu": "☊", "Ketu": "☋",
+}
 
-    # shared cell style helpers
-    TD   = "style='padding:6px 8px;border-bottom:1px solid #2d3748;vertical-align:top'"
-    TD_L = "style='padding:6px 8px;border-bottom:1px solid #2d3748;vertical-align:top;border-left:2px solid #4a5568'"
+def _comparison_table_html(natal: dict, transit: dict) -> str:
+    """
+    Build a side-by-side Natal vs Transit comparison table.
+    Covers: Ascendant, 7 planets, Rahu, Ketu.
+    Rahu/Ketu show 'N/A' for combustion (shadow planets).
+    Ascendant transit column is blank (changes every ~2h).
+    """
+    TD   = "style='padding:6px 9px;border-bottom:1px solid #2d3748;vertical-align:top'"
+    TD_L = ("style='padding:6px 9px;border-bottom:1px solid #2d3748;"
+            "vertical-align:top;border-left:2px solid #4a5568'")
+
+    def _nak_cell(nak, pad, lord):
+        return (f"<span style='font-weight:500'>{nak}</span>"
+                f"<br><span style='color:#718096;font-size:0.76rem'>Pada {pad} · {lord}</span>")
+
+    def _flags(data, is_node=False, is_asc=False):
+        parts = []
+        if not is_node and not is_asc:
+            c = data.get("combust", {})
+            if c.get("deep"):
+                parts.append('<span style="color:#fc8181;font-weight:600">🔥 Deep Combust</span>')
+            elif c.get("combust"):
+                parts.append('<span style="color:#f6ad55">🔥 Combust</span>')
+        elif is_node:
+            parts.append('<span style="color:#718096;font-size:0.78rem">☽☋ No combustion</span>')
+        if data.get("gandanta", {}).get("gandanta"):
+            jct = data["gandanta"].get("junction", "")
+            parts.append(f'<span style="color:#b794f4">⚡ Gandanta ({jct})</span>')
+        if data.get("vargottama"):
+            parts.append('<span style="color:#68d391">✨ Vargottama</span>')
+        return " ".join(parts) if parts else '<span style="color:#4a5568">—</span>'
+
+    _TRANSIT_NONE = (
+        "<td colspan='5' "
+        "style='padding:6px 9px;border-bottom:1px solid #2d3748;"
+        "border-left:2px solid #4a5568;color:#4a5568;font-style:italic;"
+        "text-align:center'>N/A — changes every 2 h</td>"
+    )
 
     rows = []
-    for planet in NATAL_PLANETS:
-        n = natal.get(planet, {})
-        t = transit.get(planet, {})
-        if not n or not t:
+    for planet in ALL_DISPLAY_PLANETS:
+        n = natal.get(planet)
+        if not n:
             continue
 
-        # ── Natal flags ────────────────────────────────────────────────────
-        n_flags = []
-        if planet != "Sun":
-            if n["combust"]["deep"]:
-                n_flags.append('<span style="color:#e53e3e;font-weight:600">🔥 Deep Combust</span>')
-            elif n["combust"]["combust"]:
-                n_flags.append('<span style="color:#dd6b20">🔥 Combust</span>')
-        if n["gandanta"]["gandanta"]:
-            n_flags.append('<span style="color:#805ad5">⚡ Gandanta</span>')
-        if n.get("vargottama"):
-            n_flags.append('<span style="color:#2b6cb0">✨ Vargottama</span>')
-        n_flag_str = " ".join(n_flags) if n_flags else '<span style="color:#718096">—</span>'
+        icon     = _PLANET_ICONS.get(planet, "")
+        is_node  = n.get("is_node", False)
+        is_asc   = n.get("is_ascendant", False)
+        retro_n  = (" <span style='color:#f6ad55;font-size:0.78rem'>℞</span>"
+                    if n.get("retrograde") else "")
 
-        # ── Transit flags ──────────────────────────────────────────────────
-        t_flags = []
-        if planet != "Sun":
-            if t["combust"]["deep"]:
-                t_flags.append('<span style="color:#e53e3e;font-weight:600">🔥 Deep Combust</span>')
-            elif t["combust"]["combust"]:
-                t_flags.append('<span style="color:#dd6b20">🔥 Combust</span>')
-        if t["gandanta"]["gandanta"]:
-            t_flags.append('<span style="color:#805ad5">⚡ Gandanta</span>')
-        t_flag_str = " ".join(t_flags) if t_flags else '<span style="color:#718096">—</span>'
+        n_nak_cell = _nak_cell(n.get("nakshatra","—"),
+                               n.get("pada","—"),
+                               n.get("nakshatra_lord","—"))
+        n_flag_str = _flags(n, is_node=is_node, is_asc=is_asc)
 
-        retro_n = " <span style='color:#f6ad55;font-size:0.8rem'>℞</span>" if n["retrograde"] else ""
-        retro_t = " <span style='color:#f6ad55;font-size:0.8rem'>℞</span>" if t["retrograde"] else ""
+        # row background alternation
+        bg = "background:#16202e" if ALL_DISPLAY_PLANETS.index(planet) % 2 == 0 else ""
 
-        # nakshatra + pada display
-        n_nak = n.get("nakshatra", "—")
-        n_pad = n.get("pada", "—")
-        n_lord = n.get("nakshatra_lord", "")
-        t_nak = t.get("nakshatra", "—")
-        t_pad = t.get("pada", "—")
-        t_lord = t.get("nakshatra_lord", "")
-
-        n_nak_str = (f"<span style='font-weight:500'>{n_nak}</span>"
-                     f"<br><span style='color:#a0aec0;font-size:0.78rem'>Pada {n_pad} · {n_lord}</span>")
-        t_nak_str = (f"<span style='font-weight:500'>{t_nak}</span>"
-                     f"<br><span style='color:#a0aec0;font-size:0.78rem'>Pada {t_pad} · {t_lord}</span>")
-
-        rows.append(
-            f"<tr>"
-            f"<td {TD} style='font-weight:700;color:#e2e8f0'>{planet}</td>"
+        natal_cells = (
+            f"<td {TD} style='font-weight:700;color:#e2e8f0;{bg}'>"
+            f"{icon} {planet}</td>"
             f"<td {TD}>{n['longitude']:.2f}°{retro_n}</td>"
             f"<td {TD}>{n['sign']}</td>"
-            f"<td {TD}>{n_nak_str}</td>"
-            f"<td {TD}><span style='font-size:0.85rem'>{n['state']}</span></td>"
-            f"<td {TD}>{n_flag_str}</td>"
-            f"<td {TD_L}>{t['longitude']:.2f}°{retro_t}</td>"
-            f"<td {TD}>{t['sign']}</td>"
-            f"<td {TD}>{t_nak_str}</td>"
-            f"<td {TD}><span style='font-size:0.85rem'>{t['state']}</span></td>"
-            f"<td {TD}>{t_flag_str}</td>"
-            f"</tr>"
+            f"<td {TD}>{n_nak_cell}</td>"
+            f"<td {TD}><span style='font-size:0.82rem'>{n.get('state','—')}</span></td>"
+            f"<td {TD} style='border-right:2px solid #4a5568'>{n_flag_str}</td>"
         )
+
+        if is_asc:
+            transit_cells = _TRANSIT_NONE
+        else:
+            t = transit.get(planet)
+            if not t:
+                transit_cells = _TRANSIT_NONE
+            else:
+                retro_t = (" <span style='color:#f6ad55;font-size:0.78rem'>℞</span>"
+                           if t.get("retrograde") else "")
+                t_nak_cell = _nak_cell(t.get("nakshatra","—"),
+                                       t.get("pada","—"),
+                                       t.get("nakshatra_lord","—"))
+                t_flag_str = _flags(t, is_node=is_node)
+                transit_cells = (
+                    f"<td {TD_L}>{t['longitude']:.2f}°{retro_t}</td>"
+                    f"<td {TD}>{t['sign']}</td>"
+                    f"<td {TD}>{t_nak_cell}</td>"
+                    f"<td {TD}><span style='font-size:0.82rem'>{t.get('state','—')}</span></td>"
+                    f"<td {TD}>{t_flag_str}</td>"
+                )
+
+        rows.append(f"<tr>{natal_cells}{transit_cells}</tr>")
 
     header = (
         "<thead>"
-        "<tr style='background:#1a202c;color:#fff'>"
-        "<th style='padding:8px;text-align:left'>Planet</th>"
-        "<th colspan='5' style='text-align:center;padding:8px;"
-        "border-right:2px solid #4a5568;background:#2c3e6b'>🌟 Natal (Birth Chart)</th>"
-        "<th colspan='5' style='text-align:center;padding:8px;background:#1e3a2e'>🔄 Transit / Gocharam (Live)</th>"
+        "<tr style='background:#0f172a;color:#fff'>"
+        "<th style='padding:10px 9px;text-align:left'>Planet</th>"
+        "<th colspan='5' style='text-align:center;padding:10px;background:#1e3a5f;"
+        "border-right:2px solid #4a5568'>🌟 Natal — Birth Chart</th>"
+        "<th colspan='5' style='text-align:center;padding:10px;background:#14352a'>"
+        "🔄 Gocharam — Live Transit</th>"
         "</tr>"
-        "<tr style='background:#2d3748;color:#a0aec0;font-size:0.8rem'>"
-        "<th style='padding:6px 8px'></th>"
-        "<th style='padding:6px 8px'>Longitude</th>"
-        "<th style='padding:6px 8px'>Sign</th>"
-        "<th style='padding:6px 8px'>Nakshatra · Pada</th>"
-        "<th style='padding:6px 8px'>State</th>"
-        "<th style='padding:6px 8px;border-right:2px solid #4a5568'>Flags</th>"
-        "<th style='padding:6px 8px;border-left:2px solid #4a5568'>Longitude</th>"
-        "<th style='padding:6px 8px'>Sign</th>"
-        "<th style='padding:6px 8px'>Nakshatra · Pada</th>"
-        "<th style='padding:6px 8px'>State</th>"
-        "<th style='padding:6px 8px'>Flags</th>"
+        "<tr style='background:#1e2535;color:#718096;font-size:0.78rem'>"
+        "<th style='padding:5px 9px'></th>"
+        "<th style='padding:5px 9px'>Longitude</th>"
+        "<th style='padding:5px 9px'>Sign</th>"
+        "<th style='padding:5px 9px'>Nakshatra · Pada · Lord</th>"
+        "<th style='padding:5px 9px'>State</th>"
+        "<th style='padding:5px 9px;border-right:2px solid #4a5568'>Flags</th>"
+        "<th style='padding:5px 9px;border-left:2px solid #4a5568'>Longitude</th>"
+        "<th style='padding:5px 9px'>Sign</th>"
+        "<th style='padding:5px 9px'>Nakshatra · Pada · Lord</th>"
+        "<th style='padding:5px 9px'>State</th>"
+        "<th style='padding:5px 9px'>Flags</th>"
         "</tr></thead>"
     )
     body = "<tbody>" + "".join(rows) + "</tbody>"
     return (
-        "<div style='overflow-x:auto;border-radius:8px;border:1px solid #2d3748'>"
-        "<table style='width:100%;border-collapse:collapse;font-size:0.88rem;"
+        "<div style='overflow-x:auto;border-radius:8px;border:1px solid #2d3748;margin-top:8px'>"
+        "<table style='width:100%;border-collapse:collapse;font-size:0.87rem;"
         "background:#1a202c;color:#e2e8f0'>"
         + header + body +
         "</table></div>"
@@ -2169,6 +2199,28 @@ _CONCEPT_GUIDE_HTML = """
       This is <em>not</em> a fatalistic number — it highlights areas to be aware of and work with.
     </div>
 
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#f687b3;margin-bottom:6px">☊☋ Rahu &amp; Ketu (Shadow Planets)</div>
+      Rahu (North Node) and Ketu (South Node) are <b>mathematical points</b> — the intersections of
+      the Moon's orbit with the ecliptic. They are <em>always</em> exactly opposite (180° apart)
+      and always retrograde. They carry karmic significance:<br>
+      <b>Rahu</b> = desires, ambition, future-directed karma.<br>
+      <b>Ketu</b> = detachment, past-life wisdom, spiritual liberation.<br>
+      Because they are shadow points (not physical bodies), <b>combustion does not apply</b>.
+      Gandanta and Vargottama <em>do</em> apply — nodes at a Water-Fire junction indicate
+      especially intense karmic knots.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#76e4f7;margin-bottom:6px">⬆️ Ascendant (Lagna)</div>
+      The Ascendant is the degree of the zodiac <b>rising on the eastern horizon</b> at the exact
+      moment of birth. It is the most personal point in the chart — it defines your body, personality,
+      and how the world sees you. The Ascendant changes sign every ~2 hours, so an accurate birth
+      time is critical. Gandanta Lagna (Ascendant at a Water-Fire junction) at birth is considered
+      a very significant karmic marker. No transit Ascendant is shown since it would not be
+      meaningful for comparison.
+    </div>
+
   </div>
 </div>
 """
@@ -2180,16 +2232,29 @@ def run_protection_analysis(dob: str, tob: str, lat, lon):
     Returns (score_html, table_html, ai_markdown).
     """
     try:
+        # ── Input validation ───────────────────────────────────────────────
         if not dob or not tob:
             msg = "⚠️ Please enter Date of Birth and Time of Birth."
             return msg, msg, msg
+        dob = str(dob).strip()
+        tob = str(tob).strip()
+        # Strict format check — gives a clear message instead of cryptic crash
+        try:
+            datetime.datetime.strptime(f"{dob} {tob}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            err = (
+                "⚠️ **Invalid date or time format.**  \n"
+                "- Date must be **YYYY-MM-DD** (e.g. `1978-09-18`)  \n"
+                "- Time must be **HH:MM** in 24-hour format (e.g. `17:35`)"
+            )
+            return err, err, err
         if lat is None or lon is None:
             return (
                 "⚠️ Location required.",
                 "⚠️ Click 'Resolve Location' or enter Latitude/Longitude manually.",
                 "",
             )
-        ap    = AstrologyProtection(str(dob), str(tob), float(lat), float(lon))
+        ap    = AstrologyProtection(dob, tob, float(lat), float(lon))
         score_html = _protection_score_html(ap.protection_score)
         table_html = _comparison_table_html(ap.natal_data, ap.transit_data)
         ai_text    = ap.get_protection_analysis(openai_api_key=OPENAI_API_KEY)

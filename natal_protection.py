@@ -168,6 +168,33 @@ def _get_planet_state(planet_name: str, rasi_tamil: str) -> str:
     return "Neutral"
 
 
+# ── Nodal (Rahu/Ketu) states — most widely used South Indian system ───────────
+# Rahu: exalted Taurus, debilitated Scorpio; Ketu: mirror
+_NODAL_STATES = {
+    "Rahu": {"exalted": "Rishaba",   "debilitated": "Vrischika"},
+    "Ketu": {"exalted": "Vrischika", "debilitated": "Rishaba"},
+}
+
+
+def _get_nodal_state(node_name: str, rasi_tamil: str) -> str:
+    """Return Exalted / Debilitated / Neutral for Rahu or Ketu."""
+    s = _NODAL_STATES.get(node_name, {})
+    if rasi_tamil == s.get("exalted"):
+        return "Exalted"
+    if rasi_tamil == s.get("debilitated"):
+        return "Debilitated"
+    return "Neutral"
+
+
+# ── Display order for the comparison table ────────────────────────────────────
+# Ascendant first (fixed point), then 7 planets, then shadow planets last.
+ALL_DISPLAY_PLANETS = [
+    "Ascendant",
+    "Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn",
+    "Rahu", "Ketu",
+]
+
+
 # ── Geocoding & timezone helpers ─────────────────────────────────────────────
 
 def geocode_place(place_name: str):
@@ -210,25 +237,23 @@ def _get_utc_offset_hours(lat: float, lon: float) -> float:
 def local_to_utc(birth_date: str, birth_time: str, lat: float, lon: float) -> datetime.datetime:
     """
     Convert local birth date+time to UTC using the timezone auto-detected from lat/lon.
-    birth_date: "YYYY-MM-DD"
+    birth_date: "YYYY-MM-DD"   (strictly validated — raises ValueError on bad format)
     birth_time: "HH:MM"
-    Returns a UTC datetime.
+    Returns a UTC datetime (naive, UTC).
     """
+    # Parse strictly — raises ValueError propagated to caller for clean error messages
+    local_dt = datetime.datetime.strptime(
+        f"{birth_date.strip()} {birth_time.strip()}", "%Y-%m-%d %H:%M"
+    )
     try:
         from timezonefinder import TimezoneFinder
         tf = TimezoneFinder()
         tz_name = tf.timezone_at(lat=lat, lng=lon) or "UTC"
         tz = pytz.timezone(tz_name)
-        year, month, day = [int(x) for x in birth_date.split("-")]
-        hour, minute = [int(x) for x in birth_time.split(":")]
-        local_dt = datetime.datetime(year, month, day, hour, minute)
         local_dt_aware = tz.localize(local_dt)
         return local_dt_aware.astimezone(pytz.utc).replace(tzinfo=None)
     except Exception:
-        # Fallback: treat as UTC
-        year, month, day = [int(x) for x in birth_date.split("-")]
-        hour, minute = [int(x) for x in birth_time.split(":")]
-        return datetime.datetime(year, month, day, hour, minute)
+        return local_dt   # fallback: treat birth time as UTC
 
 
 # ── Core AstrologyProtection class ───────────────────────────────────────────
@@ -314,6 +339,66 @@ class AstrologyProtection:
                 "nakshatra_lord":  nak_lord,
             }
 
+        # ── Rahu (True Node) and Ketu (always 180° opposite) ──────────────────
+        _NO_COMBUST = {"combust": False, "deep": False, "orb": 0.0, "na": True}
+        rahu_xx   = swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)[0]
+        rahu_lon  = rahu_xx[0]
+        rahu_spd  = rahu_xx[3]
+        ketu_lon  = (rahu_lon + 180.0) % 360.0
+
+        for node_name, node_lon in (("Rahu", rahu_lon), ("Ketu", ketu_lon)):
+            n_si   = int(node_lon / 30) % 12
+            n_rasi = RASIS[n_si]
+            n_sign = RASIS_ENGLISH[n_si]
+            n_d9   = _get_navamsa_sign(node_lon)
+            n_nak, n_pada, n_lord = _get_nakshatra_pada(node_lon)
+            result[node_name] = {
+                "longitude":      round(node_lon, 4),
+                "deg_in_sign":    round(node_lon % 30, 2),
+                "sign_index":     n_si,
+                "rasi":           n_rasi,
+                "sign":           n_sign,
+                "navamsa_sign":   RASIS_ENGLISH[n_d9],
+                "retrograde":     True,    # nodes are always retrograde
+                "speed":          round(rahu_spd, 4),
+                "state":          _get_nodal_state(node_name, n_rasi),
+                "combust":        _NO_COMBUST,
+                "gandanta":       check_gandanta(node_lon),
+                "vargottama":     check_vargottama(node_lon),
+                "nakshatra":      n_nak,
+                "pada":           n_pada,
+                "nakshatra_lord": n_lord,
+                "is_node":        True,    # flag: skip combust display
+            }
+
+        # ── Ascendant (Lagna) ──────────────────────────────────────────────────
+        # houses_ex returns tropical cusps; subtract Lahiri ayanamsa for sidereal.
+        _, ascmc   = swe.houses_ex(jd, self.lat, self.lon, b'W')
+        ayanamsa   = swe.get_ayanamsa_ut(jd)
+        asc_lon    = (ascmc[0] - ayanamsa) % 360.0
+        a_si       = int(asc_lon / 30) % 12
+        a_rasi     = RASIS[a_si]
+        a_sign     = RASIS_ENGLISH[a_si]
+        a_nak, a_pada, a_lord = _get_nakshatra_pada(asc_lon)
+        result["Ascendant"] = {
+            "longitude":      round(asc_lon, 4),
+            "deg_in_sign":    round(asc_lon % 30, 2),
+            "sign_index":     a_si,
+            "rasi":           a_rasi,
+            "sign":           a_sign,
+            "navamsa_sign":   "",
+            "retrograde":     False,
+            "speed":          0.0,
+            "state":          "Lagna",
+            "combust":        _NO_COMBUST,
+            "gandanta":       check_gandanta(asc_lon),
+            "vargottama":     False,
+            "nakshatra":      a_nak,
+            "pada":           a_pada,
+            "nakshatra_lord": a_lord,
+            "is_ascendant":   True,   # flag: no transit equivalent
+        }
+
         return result
 
     # ── Transit calculation ───────────────────────────────────────────────────
@@ -358,6 +443,34 @@ class AstrologyProtection:
                 "nakshatra_lord": nak_lord,
             }
 
+        # ── Transit Rahu/Ketu ──────────────────────────────────────────────────
+        _NO_COMBUST = {"combust": False, "deep": False, "orb": 0.0, "na": True}
+        rahu_xx  = swe.calc_ut(jd_now, swe.TRUE_NODE, _FLAGS)[0]
+        rahu_lon = rahu_xx[0]
+        ketu_lon = (rahu_lon + 180.0) % 360.0
+
+        for node_name, node_lon in (("Rahu", rahu_lon), ("Ketu", ketu_lon)):
+            n_si   = int(node_lon / 30) % 12
+            n_rasi = RASIS[n_si]
+            n_sign = RASIS_ENGLISH[n_si]
+            n_nak, n_pada, n_lord = _get_nakshatra_pada(node_lon)
+            result[node_name] = {
+                "longitude":      round(node_lon, 4),
+                "sign_index":     n_si,
+                "sign":           n_sign,
+                "retrograde":     True,
+                "state":          _get_nodal_state(node_name, n_rasi),
+                "combust":        _NO_COMBUST,
+                "gandanta":       check_gandanta(node_lon),
+                "nakshatra":      n_nak,
+                "pada":           n_pada,
+                "nakshatra_lord": n_lord,
+                "is_node":        True,
+            }
+
+        # Ascendant has no meaningful transit equivalent (changes every ~2h)
+        result["Ascendant"] = None
+
         return result
 
     # ── Protection Score ─────────────────────────────────────────────────────
@@ -373,17 +486,19 @@ class AstrologyProtection:
         """
         score = 5
         for planet_name, data in self.natal_data.items():
-            if planet_name == "Sun":
-                continue
-            c = data["combust"]
-            if c["deep"]:
-                score -= 2
-            elif c["combust"]:
-                score -= 1
-            if data["gandanta"]["gandanta"]:
-                score -= 2
-            if data["vargottama"]:
-                score += 2
+            if planet_name in ("Sun", "Ascendant"):
+                continue          # Sun cannot be combust; Ascendant is a point not a planet
+            c = data.get("combust", {})
+            # Combustion only penalises physical planets (not nodes — they are shadow)
+            if not data.get("is_node"):
+                if c.get("deep"):
+                    score -= 2
+                elif c.get("combust"):
+                    score -= 1
+            if data.get("gandanta", {}).get("gandanta"):
+                score -= 2        # gandanta applies to planets AND nodes
+            if data.get("vargottama"):
+                score += 2        # vargottama applies to planets AND nodes
         return max(1, min(10, score))
 
     # ── AI Analysis ──────────────────────────────────────────────────────────
