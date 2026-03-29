@@ -1,6 +1,7 @@
 """
 gemini_review.py — Ask Gemini to do a 3rd-eye code review of the natal
-protection feature (Dasha/Bhukti, combustion, gandanta, Hidden Strength).
+protection feature (Dasha/Bhukti, Pushkara Navamsa, combustion, gandanta,
+Hidden Strength, transit forecast).
 
 Usage:
     GEMINI_API_KEY=<your-key> python gemini_review.py
@@ -82,32 +83,72 @@ Function: `scan_transit_affliction`
 - Is the Julian Day conversion (`swe.julday`) handling UTC correctly for the scan loop?
 - Any risk of incorrect Ketu longitude at the 0°/360° wrap-around?
 
-## 3. Combustion Logic
+## 3. Pushkara Navamsa Engine
+Functions: `check_pushkara`, `scan_pushkara_transit`
+
+- Are the 24 `_PUSHKARA_ZONES` degree ranges correct per classical Jyotish texts
+  (BPHS / Brihat Jataka)? Cross-check especially the Water-sign zones
+  (Cancer 0°–3°20', Cancer 6°40'–10°) and Air-sign zones.
+- The zones use sidereal longitudes (0–360°). Is the input to `check_pushkara`
+  always guaranteed to be the sidereal longitude from pyswisseph? Could there
+  be an ayanamsa-not-set edge case?
+- `scan_pushkara_transit` scans day-by-day: could a fast planet (Moon) spend
+  less than 1 day in a 3°20' Pushkara zone and be missed entirely?
+- For Ketu: longitude = `(TRUE_NODE + 180) % 360`. Is `% 360` sufficient to
+  prevent the zone check receiving a value outside 0–360?
+- Divine Protection rule: `is_pushkara AND (deep_combust OR gandanta)`.
+  Should REGULAR combustion (not deep) also qualify for Divine Protection?
+  The current code only grants +5 for deep combust or gandanta. Verify this
+  against the classical source.
+- Score delta: +5 for Divine Protection. Is this additive on top of the -2
+  deep-combust penalty, or does it replace it? Trace through `_protection_score()`
+  to confirm the net effect is +3 (not +5 ignoring the penalty).
+
+## 4. Combustion Logic
 Function: `check_combustion`
 
 - Is the same-sign classical exception (`cross_sign`) applied correctly?
-- Should Mercury retrograde EVER be considered for combustion (some texts say retrograde Mercury
-  near Sun is STRONGER, not combust)?
+- Should Mercury retrograde EVER be considered for combustion (some texts say
+  retrograde Mercury near Sun is STRONGER, not combust)?
 - Does `would_combust` give misleading information in any scenario?
 
-## 4. Gandanta Override in UI
+## 5. Gandanta Override in UI
 Function: `_flags` in `_comparison_table_html` (app.py)
 
-- When `cross_sign=True` AND `gandanta=True`, does suppressing the cross-sign note make
-  astrological sense?
-- Is "overrides sign-wall" accurate — or do some classical texts treat them independently?
+- When `cross_sign=True` AND `gandanta=True`, does suppressing the cross-sign
+  note make astrological sense?
+- Is "overrides sign-wall" accurate — or do some classical texts treat them
+  independently?
 
-## 5. Hidden Strength Label
+## 6. Hidden Strength Label
 Logic: combust D1 + Vargottama D9 → "Hidden Strength"
 
-- Is this combination universally agreed upon in Jyotish, or is it school-dependent?
-- Should the Vargottama check use D1 == D9 sign, or the actual Navamsa chart degree comparison?
+- Is this combination universally agreed upon in Jyotish, or is it
+  school-dependent?
+- Should the Vargottama check use D1 == D9 sign, or the actual Navamsa chart
+  degree comparison?
 - Any scenario where the label fires incorrectly?
 
-## 6. General Code Quality
-- Performance: any concern with 365 SWE calls per scan per analysis?
-- Error handling: what happens if `AstrologyProtection._birth_utc` is wrong timezone?
-- Thread safety: is `swe.set_sid_mode(swe.SIDM_LAHIRI)` safe to call in concurrent Gradio requests?
+## 7. AI Prompt Quality (`_build_protection_prompt`)
+- Does the prompt pass enough context for the AI to correctly interpret
+  Pushkara Navamsa? Specifically: does it pass the zone name, the house
+  number, and the affliction type together so the AI can construct the
+  "surface struggle → divine recovery" narrative?
+- The prompt includes house numbers. Are there any cases where the house
+  number could be 0 or 13 (off-by-one in `_house_num()`)?
+- Is the instruction to "never skip Pushkara interpretation" strong enough,
+  or will the LLM still ignore it for minor planets?
+
+## 8. General Code Quality
+- Performance: `scan_pushkara_transit` runs 180 SWE calls per planet × 9 planets
+  = 1620 calls per analysis click. `scan_transit_affliction` adds 365 × 2 = 730
+  more. Total ~2350 SWE calls. Is this acceptable latency for a web UI?
+  Would caching the Sun's position across the day-loop help?
+- Mobile responsiveness: the HTML cards use inline `display:grid` and
+  `display:flex`. Are `min-width` values set in a way that will cause
+  horizontal overflow on 360px phone screens?
+- Thread safety: is `swe.set_sid_mode(swe.SIDM_LAHIRI)` safe to call in
+  concurrent Gradio requests?
 - Any import or dependency issues for Hugging Face Spaces deployment?
 
 ---

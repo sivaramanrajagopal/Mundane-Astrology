@@ -2016,7 +2016,7 @@ _REFERENCE_HTML = """
 <div style="background:#0f172a;border:1px solid #2d3748;border-top:none;
             border-radius:0 0 8px 8px;padding:14px 16px;font-size:0.82rem;color:#cbd5e0">
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
 
     <!-- Combustion orbs -->
     <div>
@@ -2125,7 +2125,7 @@ _REFERENCE_HTML = """
       If it is also <b>deeply combust or Gandanta</b>, its Visha Gati (poisonous movement) is
       <b>neutralised</b> — initial struggle transforms into unexpected recovery. Score <b style="color:#ffd700">+5</b>.
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">
 
       <div style="background:#16202e;border-radius:6px;padding:8px">
         <div style="font-weight:600;color:#fc8181;margin-bottom:5px;font-size:0.78rem">🔥 Fire Signs</div>
@@ -2652,8 +2652,8 @@ def _dasha_panel_html(db: dict, natal_data: dict,
     </span>
   </div>
 
-  <!-- Two-column Maha Dasha / Bhukti cards -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+  <!-- Maha Dasha / Bhukti cards — stacks to 1-col on narrow screens -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px">
 
     <!-- Maha Dasha card -->
     <div style="background:#16202e;border:1px solid #2d3748;border-radius:6px;padding:12px">
@@ -2797,31 +2797,35 @@ def _pushkara_forecast_card_html(scans: dict, ref_date_str: str = "") -> str:
           <br><span style="color:#718096;font-size:0.76rem">~{ndt}</span></td>
       </tr>"""
 
+    _tbl_wrap = "overflow-x:auto;-webkit-overflow-scrolling:touch"
+
     now_section = ""
     if now_rows:
         now_section = f"""
   <div style="font-weight:600;color:#ffd700;margin-bottom:6px">✨ Currently in Pushkara</div>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+  <div style="{_tbl_wrap}">
+  <table style="width:100%;min-width:360px;border-collapse:collapse;margin-bottom:12px">
     <thead><tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
       <th style="text-align:left;padding:3px 8px">Planet</th>
       <th style="text-align:left;padding:3px 8px">Zone</th>
       <th style="text-align:left;padding:3px 8px">Status</th>
     </tr></thead>
     <tbody>{now_rows}</tbody>
-  </table>"""
+  </table></div>"""
 
     up_section = ""
     if up_rows:
         up_section = f"""
   <div style="font-weight:600;color:#90cdf4;margin-bottom:6px">📅 Upcoming entries (next 6 months)</div>
-  <table style="width:100%;border-collapse:collapse">
+  <div style="{_tbl_wrap}">
+  <table style="width:100%;min-width:360px;border-collapse:collapse">
     <thead><tr style="color:#718096;font-size:0.76rem;border-bottom:1px solid #2d3748">
       <th style="text-align:left;padding:3px 8px">Planet</th>
       <th style="text-align:left;padding:3px 8px">Zone</th>
       <th style="text-align:left;padding:3px 8px">When</th>
     </tr></thead>
     <tbody>{up_rows}</tbody>
-  </table>"""
+  </table></div>"""
 
     ref_note = f'<br><span style="color:#718096;font-size:0.76rem">Computed from: {ref_date_str}</span>' if ref_date_str else ""
 
