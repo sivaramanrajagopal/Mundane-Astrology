@@ -11,7 +11,10 @@ import os
 import swisseph as swe
 import pytz
 
-from calculators.transit_calculator import RASIS, RASIS_ENGLISH, PLANETARY_STATES
+from calculators.transit_calculator import (
+    RASIS, RASIS_ENGLISH, PLANETARY_STATES,
+    NAKSHATRAS, NAKSHATRA_TO_LORD,
+)
 from astrology_engine import get_transit_data, _EPHE_CANDIDATES
 
 # ── Swiss Ephemeris path (reuse auto-detection from astrology_engine) ─────────
@@ -54,6 +57,23 @@ _GANDANTA_JUNCTIONS = [
     (240.0, "Scorpio/Sagittarius"),
 ]
 _GANDANTA_ORB = 10.0 / 3.0   # 3°20' = 3.333°
+
+# ── Nakshatra / Pada constants ─────────────────────────────────────────────
+_NAK_SPAN  = 360.0 / 27       # 13.333...° per nakshatra
+_PADA_SPAN = _NAK_SPAN / 4    # 3.333...°  per pada (quarter)
+
+
+def _get_nakshatra_pada(longitude: float) -> tuple:
+    """
+    Return (nakshatra_name, pada_1_to_4, nakshatra_lord) for a sidereal longitude.
+
+    Each of the 27 nakshatras spans 13°20' (13.333°).
+    Each nakshatra has 4 padas (quarters), each spanning 3°20' (3.333°).
+    """
+    nak_idx = min(int((longitude % 360) / _NAK_SPAN), 26)
+    nak_name = NAKSHATRAS[nak_idx]
+    pada = min(int((longitude % _NAK_SPAN) / _PADA_SPAN) + 1, 4)
+    return nak_name, pada, NAKSHATRA_TO_LORD[nak_name]
 
 
 def _angular_distance(a: float, b: float) -> float:
@@ -274,20 +294,24 @@ class AstrologyProtection:
             is_vargottama  = check_vargottama(lon_raw)
             planet_state   = _get_planet_state(planet_name, rasi_tamil)
             navamsa_idx    = _get_navamsa_sign(lon_raw)
+            nak_name, pada, nak_lord = _get_nakshatra_pada(lon_raw)
 
             result[planet_name] = {
-                "longitude":     round(lon_raw, 4),
-                "deg_in_sign":   round(deg_in_sign, 2),
-                "sign_index":    sign_index,
-                "rasi":          rasi_tamil,
-                "sign":          sign_eng,
-                "navamsa_sign":  RASIS_ENGLISH[navamsa_idx],
-                "retrograde":    retro,
-                "speed":         round(speed, 4),
-                "state":         planet_state,
-                "combust":       combust_info,
-                "gandanta":      gandanta_info,
-                "vargottama":    is_vargottama,
+                "longitude":       round(lon_raw, 4),
+                "deg_in_sign":     round(deg_in_sign, 2),
+                "sign_index":      sign_index,
+                "rasi":            rasi_tamil,
+                "sign":            sign_eng,
+                "navamsa_sign":    RASIS_ENGLISH[navamsa_idx],
+                "retrograde":      retro,
+                "speed":           round(speed, 4),
+                "state":           planet_state,
+                "combust":         combust_info,
+                "gandanta":        gandanta_info,
+                "vargottama":      is_vargottama,
+                "nakshatra":       nak_name,
+                "pada":            pada,
+                "nakshatra_lord":  nak_lord,
             }
 
         return result
@@ -319,15 +343,19 @@ class AstrologyProtection:
             combust_info  = check_combustion(sun_lon, lon_raw, planet_name, retro)
             gandanta_info = check_gandanta(lon_raw)
             planet_state  = _get_planet_state(planet_name, RASIS[data["sign_index"]])
+            nak_name, pada, nak_lord = _get_nakshatra_pada(lon_raw)
 
             result[planet_name] = {
-                "longitude":   lon_raw,
-                "sign_index":  data["sign_index"],
-                "sign":        data["sign"],
-                "retrograde":  retro,
-                "state":       planet_state,
-                "combust":     combust_info,
-                "gandanta":    gandanta_info,
+                "longitude":      lon_raw,
+                "sign_index":     data["sign_index"],
+                "sign":           data["sign"],
+                "retrograde":     retro,
+                "state":          planet_state,
+                "combust":        combust_info,
+                "gandanta":       gandanta_info,
+                "nakshatra":      nak_name,
+                "pada":           pada,
+                "nakshatra_lord": nak_lord,
             }
 
         return result
@@ -417,9 +445,11 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
         if data["vargottama"]:
             flags.append("Vargottama ✨")
         flag_str = ", ".join(flags) if flags else "Clear"
+        nak_str  = f"{data.get('nakshatra','?')} Pada {data.get('pada','?')} (lord: {data.get('nakshatra_lord','?')})"
         lines.append(
             f"  {planet}: {data['sign']} {data['deg_in_sign']:.1f}° "
-            f"[{data['state']}] {'℞' if data['retrograde'] else ''} — {flag_str}"
+            f"[{data['state']}] {'℞' if data['retrograde'] else ''} "
+            f"| Nakshatra: {nak_str} — {flag_str}"
         )
 
     lines += ["", "## Live Transit Positions (today):"]
@@ -433,9 +463,11 @@ def _build_protection_prompt(natal: dict, transit: dict, score: int,
         if data["gandanta"]["gandanta"]:
             flags.append(f"Gandanta ({data['gandanta']['junction']})")
         flag_str = ", ".join(flags) if flags else "Clear"
+        nak_str  = f"{data.get('nakshatra','?')} Pada {data.get('pada','?')} (lord: {data.get('nakshatra_lord','?')})"
         lines.append(
             f"  {planet}: {data['sign']} [{data['state']}] "
-            f"{'℞' if data['retrograde'] else ''} — {flag_str}"
+            f"{'℞' if data['retrograde'] else ''} "
+            f"| Nakshatra: {nak_str} — {flag_str}"
         )
 
     lines += [

@@ -1999,7 +1999,12 @@ def _protection_score_html(score: int) -> str:
 
 
 def _comparison_table_html(natal: dict, transit: dict) -> str:
-    """Build a side-by-side natal vs transit HTML comparison table."""
+    """Build a side-by-side natal vs transit HTML comparison table (with Nakshatra & Pada)."""
+
+    # shared cell style helpers
+    TD   = "style='padding:6px 8px;border-bottom:1px solid #2d3748;vertical-align:top'"
+    TD_L = "style='padding:6px 8px;border-bottom:1px solid #2d3748;vertical-align:top;border-left:2px solid #4a5568'"
+
     rows = []
     for planet in NATAL_PLANETS:
         n = natal.get(planet, {})
@@ -2007,7 +2012,7 @@ def _comparison_table_html(natal: dict, transit: dict) -> str:
         if not n or not t:
             continue
 
-        # Natal flags
+        # ── Natal flags ────────────────────────────────────────────────────
         n_flags = []
         if planet != "Sun":
             if n["combust"]["deep"]:
@@ -2016,11 +2021,11 @@ def _comparison_table_html(natal: dict, transit: dict) -> str:
                 n_flags.append('<span style="color:#dd6b20">🔥 Combust</span>')
         if n["gandanta"]["gandanta"]:
             n_flags.append('<span style="color:#805ad5">⚡ Gandanta</span>')
-        if n["vargottama"]:
+        if n.get("vargottama"):
             n_flags.append('<span style="color:#2b6cb0">✨ Vargottama</span>')
         n_flag_str = " ".join(n_flags) if n_flags else '<span style="color:#718096">—</span>'
 
-        # Transit flags
+        # ── Transit flags ──────────────────────────────────────────────────
         t_flags = []
         if planet != "Sun":
             if t["combust"]["deep"]:
@@ -2031,43 +2036,142 @@ def _comparison_table_html(natal: dict, transit: dict) -> str:
             t_flags.append('<span style="color:#805ad5">⚡ Gandanta</span>')
         t_flag_str = " ".join(t_flags) if t_flags else '<span style="color:#718096">—</span>'
 
-        retro_n = " ℞" if n["retrograde"] else ""
-        retro_t = " ℞" if t["retrograde"] else ""
+        retro_n = " <span style='color:#f6ad55;font-size:0.8rem'>℞</span>" if n["retrograde"] else ""
+        retro_t = " <span style='color:#f6ad55;font-size:0.8rem'>℞</span>" if t["retrograde"] else ""
+
+        # nakshatra + pada display
+        n_nak = n.get("nakshatra", "—")
+        n_pad = n.get("pada", "—")
+        n_lord = n.get("nakshatra_lord", "")
+        t_nak = t.get("nakshatra", "—")
+        t_pad = t.get("pada", "—")
+        t_lord = t.get("nakshatra_lord", "")
+
+        n_nak_str = (f"<span style='font-weight:500'>{n_nak}</span>"
+                     f"<br><span style='color:#a0aec0;font-size:0.78rem'>Pada {n_pad} · {n_lord}</span>")
+        t_nak_str = (f"<span style='font-weight:500'>{t_nak}</span>"
+                     f"<br><span style='color:#a0aec0;font-size:0.78rem'>Pada {t_pad} · {t_lord}</span>")
 
         rows.append(
             f"<tr>"
-            f"<td style='font-weight:600'>{planet}</td>"
-            f"<td>{n['longitude']:.2f}°{retro_n}</td>"
-            f"<td>{n['sign']}</td>"
-            f"<td>{n['state']}</td>"
-            f"<td>{n_flag_str}</td>"
-            f"<td style='border-left:2px solid #e2e8f0'>{t['longitude']:.2f}°{retro_t}</td>"
-            f"<td>{t['sign']}</td>"
-            f"<td>{t['state']}</td>"
-            f"<td>{t_flag_str}</td>"
+            f"<td {TD} style='font-weight:700;color:#e2e8f0'>{planet}</td>"
+            f"<td {TD}>{n['longitude']:.2f}°{retro_n}</td>"
+            f"<td {TD}>{n['sign']}</td>"
+            f"<td {TD}>{n_nak_str}</td>"
+            f"<td {TD}><span style='font-size:0.85rem'>{n['state']}</span></td>"
+            f"<td {TD}>{n_flag_str}</td>"
+            f"<td {TD_L}>{t['longitude']:.2f}°{retro_t}</td>"
+            f"<td {TD}>{t['sign']}</td>"
+            f"<td {TD}>{t_nak_str}</td>"
+            f"<td {TD}><span style='font-size:0.85rem'>{t['state']}</span></td>"
+            f"<td {TD}>{t_flag_str}</td>"
             f"</tr>"
         )
 
     header = (
-        "<thead><tr style='background:#2d3748;color:#fff'>"
-        "<th>Planet</th>"
-        "<th colspan='4' style='text-align:center;border-right:2px solid #4a5568'>Natal</th>"
-        "<th colspan='4' style='text-align:center'>Transit (Live)</th>"
+        "<thead>"
+        "<tr style='background:#1a202c;color:#fff'>"
+        "<th style='padding:8px;text-align:left'>Planet</th>"
+        "<th colspan='5' style='text-align:center;padding:8px;"
+        "border-right:2px solid #4a5568;background:#2c3e6b'>🌟 Natal (Birth Chart)</th>"
+        "<th colspan='5' style='text-align:center;padding:8px;background:#1e3a2e'>🔄 Transit / Gocharam (Live)</th>"
         "</tr>"
-        "<tr style='background:#4a5568;color:#e2e8f0;font-size:0.85rem'>"
-        "<th></th>"
-        "<th>Longitude</th><th>Sign</th><th>State</th><th>Flags</th>"
-        "<th style='border-left:2px solid #718096'>Longitude</th>"
-        "<th>Sign</th><th>State</th><th>Flags</th>"
+        "<tr style='background:#2d3748;color:#a0aec0;font-size:0.8rem'>"
+        "<th style='padding:6px 8px'></th>"
+        "<th style='padding:6px 8px'>Longitude</th>"
+        "<th style='padding:6px 8px'>Sign</th>"
+        "<th style='padding:6px 8px'>Nakshatra · Pada</th>"
+        "<th style='padding:6px 8px'>State</th>"
+        "<th style='padding:6px 8px;border-right:2px solid #4a5568'>Flags</th>"
+        "<th style='padding:6px 8px;border-left:2px solid #4a5568'>Longitude</th>"
+        "<th style='padding:6px 8px'>Sign</th>"
+        "<th style='padding:6px 8px'>Nakshatra · Pada</th>"
+        "<th style='padding:6px 8px'>State</th>"
+        "<th style='padding:6px 8px'>Flags</th>"
         "</tr></thead>"
     )
     body = "<tbody>" + "".join(rows) + "</tbody>"
     return (
-        "<div style='overflow-x:auto'>"
-        "<table style='width:100%;border-collapse:collapse;font-size:0.9rem'>"
+        "<div style='overflow-x:auto;border-radius:8px;border:1px solid #2d3748'>"
+        "<table style='width:100%;border-collapse:collapse;font-size:0.88rem;"
+        "background:#1a202c;color:#e2e8f0'>"
         + header + body +
         "</table></div>"
     )
+
+
+_CONCEPT_GUIDE_HTML = """
+<div style="background:#1a202c;border:1px solid #2d3748;border-radius:10px;padding:20px;color:#e2e8f0;font-size:0.92rem;line-height:1.7">
+
+  <h3 style="color:#90cdf4;margin-top:0">🪐 How to Read This Chart — Vedic Concepts Explained</h3>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:12px">
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#fbd38d;margin-bottom:6px">🌙 Nakshatra (Lunar Mansion)</div>
+      The sky is divided into <b>27 Nakshatras</b>, each spanning <b>13°20'</b>.
+      Every planet "sits" in one of these mansions at birth and in transit.
+      Each Nakshatra has a ruling planet (its <em>lord</em>) that colours the planet's energy —
+      e.g., Moon in Rohini (ruled by Moon) gives nurturing, creative energy.
+      Nakshatras are finer than signs and reveal the <em>texture</em> of a planet's expression.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#fbd38d;margin-bottom:6px">🔢 Pada (Quarter)</div>
+      Each Nakshatra is split into <b>4 Padas</b> (quarters) of <b>3°20'</b> each.
+      The Pada maps to a Navamsa sign (D9 chart), adding another layer of detail.
+      <b>Pada 1</b> = Aries energy, <b>Pada 2</b> = Taurus energy, etc., cycling through
+      the signs in order. Knowing the Pada helps understand <em>which aspect</em> of the
+      Nakshatra is activated.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#fc8181;margin-bottom:6px">🔥 Combustion (Astangata)</div>
+      A planet that comes too close to the <b>Sun</b> gets "burned" and loses strength.
+      Each planet has its own safe distance — e.g., Jupiter needs to stay beyond 11°,
+      Venus beyond 10°. Within <b>3°</b> is <em>deep combustion</em> (severe).
+      A combust planet struggles to deliver its significations: combust Venus can
+      affect wealth/relationships; combust Mercury can affect communication.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#b794f4;margin-bottom:6px">⚡ Gandanta (Karmic Knot)</div>
+      Gandanta zones sit at the <b>Water–Fire sign junctions</b>:
+      Pisces/Aries (0°), Cancer/Leo (120°), Scorpio/Sagittarius (240°).
+      A planet within <b>±3°20'</b> of these points is in a Gandanta zone —
+      considered a "knot" between worlds. It indicates karmic intensity and
+      unresolved soul-level themes that require conscious healing.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#68d391;margin-bottom:6px">✨ Vargottama (Amplified Strength)</div>
+      A planet is Vargottama when its <b>D1 (Rasi/birth chart) sign equals its D9 (Navamsa) sign</b>.
+      This happens at the beginning and middle of each sign. It is considered
+      <em>very auspicious</em> — the planet's qualities are amplified and more reliably expressed.
+      A Vargottama Venus, for example, strongly blesses love, beauty, and abundance.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#63b3ed;margin-bottom:6px">🔄 Transit / Gocharam (Live Positions)</div>
+      While your <em>natal chart</em> is fixed at birth, planets keep moving.
+      <b>Gocharam</b> (transit) compares <em>where planets are today</em> against your natal positions.
+      When a transit planet activates a natal weak point (e.g., transit Sun conjuncts your natal
+      combust Venus), that theme is triggered. When a transit planet moves <em>away</em> from
+      combustion, it opens an "action window" — a window to act on that planet's themes.
+    </div>
+
+    <div style="background:#2d3748;border-radius:8px;padding:14px">
+      <div style="font-weight:700;color:#f6ad55;margin-bottom:6px">🛡️ Protection Score (1–10)</div>
+      A composite score based on your natal planet conditions:<br>
+      <span style="color:#fc8181">−2 Deep Combustion</span> · <span style="color:#f6ad55">−1 Combustion</span> ·
+      <span style="color:#b794f4">−2 Gandanta</span> · <span style="color:#68d391">+2 Vargottama</span><br>
+      Baseline: <b>5</b>. Score 1–4 = Low · 5–6 = Moderate · 7–10 = Strong.
+      This is <em>not</em> a fatalistic number — it highlights areas to be aware of and work with.
+    </div>
+
+  </div>
+</div>
+"""
 
 
 def run_protection_analysis(dob: str, tob: str, lat, lon):
@@ -2209,11 +2313,14 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
         # ── Tab 7: Natal Protection Analysis ──────────────────────────────────
         with gr.Tab("🛡️ Natal Protection"):
             gr.Markdown(
-                "Enter your birth details to calculate your **Vedic Protection Score** "
-                "(1–10). Checks combustion, Gandanta, and Vargottama for all 7 natal "
-                "planets and compares them side-by-side with live transit positions. "
-                "AI generates personalised alerts and action windows."
+                "Enter your birth details to calculate your **Vedic Protection Score** (1–10). "
+                "Shows Nakshatra, Pada, Combustion, Gandanta, and Vargottama for all 7 natal planets "
+                "alongside live transit (Gocharam) positions. AI generates personalised alerts and action windows."
             )
+
+            with gr.Accordion("📚 What do these terms mean? (Concept Guide)", open=False):
+                gr.HTML(_CONCEPT_GUIDE_HTML)
+
             with gr.Row():
                 with gr.Column(scale=1):
                     gr.Markdown("### Birth Details")
@@ -2233,7 +2340,7 @@ with gr.Blocks(title="Mundane Astrology Dashboard",
                     np_score_out = gr.HTML(label="Protection Score")
                     np_table_out = gr.HTML(label="Natal vs Transit Comparison")
 
-            gr.Markdown("### AI Analysis")
+            gr.Markdown("### 🤖 AI Analysis")
             np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
 
     # ── Event wiring ──────────────────────────────────────────────────────
