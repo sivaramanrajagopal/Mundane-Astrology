@@ -711,59 +711,98 @@ def _build_dosha_prompt(
     rz_entries = forecast["red_zone_entries"][:5]
     crit_wins  = forecast["critical_windows"][:3]
 
-    # Active doshas summary
+    # ── Natal planets permanently in Soonya Rasi (key birth-level finding) ──
+    natal_soonya = [
+        f"{p} in {d['sign']}"
+        for p, d in profile.get("natal_planets", {}).items()
+        if d.get("in_soonya")
+    ]
+    natal_soonya_str = (
+        ", ".join(natal_soonya)
+        + " — these planets are PERMANENTLY in Soonya Rasi from birth. "
+          "This is a significant birth-level weakness that MUST be mentioned first."
+    ) if natal_soonya else "None"
+
+    # ── Active transit doshas ────────────────────────────────────────────────
     active = []
     for p_name, d in transit.items():
         crit = d["critical_obstruction"]
-        if crit["severity"] in ("critical", "critical_divine"):
-            active.append(f"- {p_name}: {crit['severity'].upper()} ({crit['visha_gati_note']})")
+        sev  = crit.get("severity", "none")
+        if sev in ("critical", "critical_divine"):
+            divine_note = " — DIVINE PROTECTION (Pushkara) active" if crit.get("has_divine_protection") else ""
+            active.append(
+                f"- {p_name}: CRITICAL OBSTRUCTION{divine_note}. {crit['visha_gati_note']}"
+            )
+        elif sev in ("mild", "mild_divine"):
+            divine_note = " — Pushkara partially protects" if crit.get("has_divine_protection") else ""
+            active.append(f"- {p_name}: Mild obstruction in Soonya Rasi ({d['sign']}){divine_note}")
         if d.get("in_chandrashtama"):
-            active.append(f"- Moon: Chandrashtama active (in {profile['chandrashtama_sign']})")
+            active.append(f"- Moon: Chandrashtama active RIGHT NOW (in {profile['chandrashtama_sign']})")
         if d.get("red_zone"):
-            active.append(f"- {p_name}: {d['red_zone']} nakshatra ({d['nak_name']}) — RED ZONE")
+            active.append(
+                f"- {p_name}: in {d['red_zone']} nakshatra ({d['nak_name']}) — RED ZONE transit"
+            )
         if d.get("in_mudakku"):
-            active.append(f"- {p_name}: in Mudakku Rasi ({profile['mudakku']['sign_name']}) — BLOCKED SIGN")
+            active.append(
+                f"- {p_name}: in Mudakku Rasi ({profile['mudakku']['sign_name']}) — BLOCKED SIGN"
+            )
+        # Also flag Soonya-only without obstruction
+        if d.get("in_soonya") and sev == "none" and not d.get("red_zone"):
+            active.append(
+                f"- {p_name}: transiting Soonya Rasi ({d['sign']}) — results weakened or erratic"
+            )
 
     active_str = "\n".join(active) if active else "No critical obstructions active right now."
 
-    # Upcoming
+    # ── Upcoming windows ─────────────────────────────────────────────────────
     upcoming = []
     for w in c_win:
-        upcoming.append(f"- Chandrashtama window: {w['start_date'].strftime('%Y-%m-%d')} "
-                        f"(~{w['duration_days']} days, in {profile['chandrashtama_english']})")
+        upcoming.append(
+            f"- Chandrashtama: {w['start_date'].strftime('%Y-%m-%d')} "
+            f"(~{w['duration_days']} days in {profile['chandrashtama_english']})"
+        )
     for e in rz_entries[:3]:
-        upcoming.append(f"- {e['planet']} enters {e['type']} ({e['nak_name']}) "
-                        f"on {e['entry_date'].strftime('%Y-%m-%d')} — {e['severity']}")
+        zone_type = "Vainasikam (Annihilation — most severe)" if e["type"] == "Vainasikam" else "Vadhai (Destruction)"
+        upcoming.append(
+            f"- {e['planet']} enters {zone_type} ({e['nak_name']}) "
+            f"on {e['entry_date'].strftime('%Y-%m-%d')}"
+        )
     for cw in crit_wins[:2]:
-        div = " [DIVINE PROTECTION active]" if cw["has_divine"] else ""
-        upcoming.append(f"- {cw['planet']} in Soonya Rasi ({cw['soonya_sign']}) "
-                        f"+ {cw['affliction_type']} on {cw['date'].strftime('%Y-%m-%d')}{div}")
+        div = " — DIVINE PROTECTION (Pushkara) is confirmed active" if cw["has_divine"] else " — NO protection active"
+        upcoming.append(
+            f"- {cw['planet']} in Soonya Rasi ({cw['soonya_sign']}) + {cw['affliction_type']} "
+            f"on {cw['date'].strftime('%Y-%m-%d')}{div}"
+        )
     upcoming_str = "\n".join(upcoming) if upcoming else "No major obstruction windows in the next 90 days."
 
     return f"""
 Natal Obstruction Dosha Profile:
 - Birth Tithi: {profile['tithi_name']} ({profile['paksha']} Paksha)
-- Thithi Soonya Rasis (void signs): {soonya_str}
+- Thithi Soonya Rasis (void signs for this native): {soonya_str}
+- NATAL PLANETS PERMANENTLY IN SOONYA: {natal_soonya_str}
 - Janma Nakshatra: {profile['moon_nak_name']}
 - Vadhai Nakshatra (7th — Destruction): {profile['vadhai_nak_name']}
 - Vainasikam Nakshatra (22nd — Annihilation): {profile['vainasikam_nak_name']}
 - Chandrashtama Sign (8th from natal Moon): {profile['chandrashtama_english']} ({profile['chandrashtama_sign']})
-- Mudakku Rasi (Blocked sign, 22nd Drekkana from Lagna): {profile['mudakku']['sign_english']} ({profile['mudakku']['sign_name']}) {profile['mudakku']['degree_lo']}–{profile['mudakku']['degree_hi']}°
+- Mudakku Rasi (Blocked, 22nd Drekkana from Lagna): {profile['mudakku']['sign_english']} {profile['mudakku']['degree_lo']}–{profile['mudakku']['degree_hi']}°
 
-Current Transit Status (active doshas):
+Current Transit Status:
 {active_str}
 
 Upcoming 90-Day Obstruction Windows:
 {upcoming_str}
 
 Instructions:
-1. Start with a brief summary of the native's permanent dosha blueprint (2-3 sentences).
-2. For each active obstruction: state the planet, say it has "Visha Gati" (poisonous movement),
-   describe the life area affected, and if Pushkara is active, say the obstruction is neutralised
-   and divine grace will restore results unexpectedly.
-3. Give 2-3 specific action tips for the most critical upcoming window.
-4. End with one encouraging sentence about the native's overall karmic protection level.
-5. Keep the total response under 400 words.
+1. FIRST — state which natal planets are permanently in Soonya Rasi and explain the lifelong
+   significance (e.g. Moon in Soonya = emotional instability, erratic mental results from birth).
+2. For each ACTIVE transit obstruction: state the planet, say it has "Visha Gati" (poisonous
+   movement), describe the life area affected. Only mention Pushkara Divine Protection if the
+   data explicitly confirms it is active — do NOT speculate.
+3. For upcoming windows: describe each concisely. Only call a window "critical" if the data
+   labels it as Critical Obstruction. Red Zone transits should be called "Red Zone window".
+4. Give 2-3 practical action tips for the most urgent upcoming window.
+5. End with one grounding sentence about overall karmic picture.
+6. Keep the total response under 450 words. Use plain language — avoid excessive Sanskrit jargon.
 """
 
 
@@ -845,7 +884,7 @@ def _build_dosha_fallback_reading(
                 f"(~{w['duration_days']} days) — guard emotional decisions.  "
             )
         for e in rz:
-            badge = "🔴 CRITICAL" if e["severity"] == "CRITICAL" else "⚠️ WARNING"
+            badge = "🔴 Red Zone (Vainasikam)" if e["severity"] == "CRITICAL" else "⚠️ Red Zone (Vadhai)"
             lines.append(
                 f"{badge} {e['planet']} enters *{e['type']}* ({e['nak_name']}) "
                 f"on **{e['entry_date'].strftime('%d %b %Y')}**.  "

@@ -3166,7 +3166,8 @@ def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
     for e in rz[:10]:
         is_vainasikam = e.get("type") == "Vainasikam"
         col   = "#fc8181" if is_vainasikam else "#f6ad55"
-        label = "🔴 CRITICAL" if is_vainasikam else "⚠️ WARNING"
+        # Use "Red Zone" wording — distinct from "Critical Obstruction" (Combust+Gandanta+Soonya)
+        label = "🔴 Red Zone — Vainasikam" if is_vainasikam else "⚠️ Red Zone — Vadhai"
         rz_rows += f"""
   <div style="background:#16202e;border-left:3px solid {col};border-radius:6px;padding:10px 14px;margin-bottom:6px">
     <span style="{pill_css};background:#2d3748;color:{col}">{label}</span>
