@@ -912,7 +912,12 @@ def _build_dosha_prompt(
             f"(~{w['duration_days']} days in {profile['chandrashtama_english']})"
         )
     for e in rz_entries[:3]:
-        zone_type = "Vainasikam (Annihilation — most severe)" if e["type"] == "Vainasikam" else "Vadhai (Destruction)"
+        if e.get("has_pushkara"):
+            zone_type = "Transformational (Visha→Amrita — Pushkara active, OPPORTUNITY window, not a warning)"
+        elif e["type"] == "Vainasikam":
+            zone_type = "Vainasikam (Annihilation — most severe)"
+        else:
+            zone_type = "Vadhai (Destruction)"
         upcoming.append(
             f"- {e['planet']} enters {zone_type} ({e['nak_name']}) "
             f"on {e['entry_date'].strftime('%Y-%m-%d')}"
