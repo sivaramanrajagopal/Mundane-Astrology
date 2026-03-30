@@ -2943,7 +2943,33 @@ _SEVERITY_COLOURS = {
 }
 
 
-def _dosha_blueprint_html(profile: dict) -> str:
+def _soonya_exit_badges(exits: dict) -> str:
+    """Render Soonya Recovery timing badges for planets currently in Soonya."""
+    if not exits:
+        return ""
+    parts = []
+    for p_name, ex in exits.items():
+        if not ex or ex.get("remaining_hours") is None:
+            continue
+        h = ex["remaining_hours"]
+        exit_str = (
+            f"~{int(h)}h" if h < 48
+            else f"~{int(h/24)}d"
+        )
+        retro_note = " ℞ (retrograde)" if ex.get("retrograde") else ""
+        badge_col = "#48bb78"
+        badge = f'<span style="color:{badge_col};font-size:0.76rem;margin-right:8px">'
+        badge += f'⏳ {p_name} exits Soonya in {exit_str}{retro_note}'
+        if ex.get("pushkara_recovery"):
+            badge += f' · ⭐ Pushkara early-recovery at {ex["pushkara_recovery"].strftime("%d %b %H:%M UTC")}'
+        elif ex.get("logical_exit"):
+            badge += f' ({ex["logical_exit"].strftime("%d %b %Y")})'
+        badge += '</span>'
+        parts.append(badge)
+    return "<br>" + " ".join(parts) if parts else ""
+
+
+def _dosha_blueprint_html(profile: dict, soonya_exits: dict | None = None) -> str:
     """4-card static blueprint: Tithi Soonya / Red Zones / Chandrashtama / Mudakku."""
     soonya_str = " · ".join(profile.get("soonya_signs", [])) or "None (Purnima/Amavasya birth)"
     mudakku    = profile.get("mudakku", {})
@@ -2963,7 +2989,7 @@ def _dosha_blueprint_html(profile: dict) -> str:
     label_css = "color:#718096;font-size:0.72rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px"
     val_css   = "font-size:1rem;font-weight:600;margin-bottom:4px"
 
-    return f"""
+    html = f"""
 <div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:12px">
   🔯 Your Dosha Blueprint
   <span style="font-size:0.75rem;font-weight:400;color:#718096;margin-left:8px">
@@ -3020,8 +3046,9 @@ def _dosha_blueprint_html(profile: dict) -> str:
     </div>
     <div style="color:#b794f4;margin-bottom:4px">
       22nd Drekkana from Lagna ({profile.get('lagna_english','?')})
-      · {mudakku.get('degree_lo',0)}°–{mudakku.get('degree_hi',10)}° ·
-      Drekkana {mudakku.get('drekkana_num',1)}
+      · House {profile.get('mudakku_house','?')} from Lagna
+      · {mudakku.get('degree_lo',0)}°–{mudakku.get('degree_hi',10)}°
+      {'<span style="color:#fc8181;font-weight:600"> — ⚠️ Double 8th Effect</span>' if profile.get('mudakku_house') == 8 else ''}
     </div>
     <div style="color:#718096;font-size:0.78rem">
       Malefic transits here amplify karmic delays and obstructions.
@@ -3030,6 +3057,22 @@ def _dosha_blueprint_html(profile: dict) -> str:
 
 </div>
 """
+    # Append soonya lifetime callout if any natal planets are in Soonya
+    soonya_natal = [(p, d) for p, d in profile.get("natal_planets", {}).items() if d.get("in_soonya")]
+    if soonya_natal:
+        planets_str = ", ".join(f"<strong>{p}</strong> ({d['sign']})" for p, d in soonya_natal)
+        html += f"""
+<div style="background:#1a2535;border-left:3px solid #f6ad55;border-radius:6px;
+            padding:10px 14px;margin-bottom:12px;font-size:0.82rem">
+  <span style="color:#f6ad55;font-weight:600">⚠️ Lifelong Soonya Theme</span>
+  <span style="color:#cbd5e0;margin-left:6px">
+    {planets_str} in Void signs from birth —
+    these planets' significations may feel 'swallowed' by circumstances.
+    Awareness and remedial effort can override this pattern.
+  </span>
+  {_soonya_exit_badges(soonya_exits or {})}
+</div>"""
+    return html
 
 
 def _dosha_transit_table_html(transit_status: dict, profile: dict) -> str:
@@ -3065,10 +3108,18 @@ def _dosha_transit_table_html(transit_status: dict, profile: dict) -> str:
         if d.get("in_chandrashtama"):
             flags.append(f'<span style="color:#b794f4">🌑 Chandrashtama ({c_sign})</span>')
         if d.get("red_zone"):
-            rz_col = "#fc8181" if d["red_zone"] == "Vainasikam" else "#f6ad55"
-            flags.append(
-                f'<span style="color:{rz_col}">🔴 {d["red_zone"]} ({d["nak_name"]})</span>'
-            )
+            if d["red_zone"] == "Transformational":
+                raw = d.get("red_zone_raw", "Red Zone")
+                flags.append(
+                    f'<span style="color:#ffd700;font-weight:600" '
+                    f'title="Visha (poison) converted to Amrita (nectar) by Pushkara Navamsa">'
+                    f'🌟 Transformational ({raw}) — Visha→Amrita</span>'
+                )
+            else:
+                rz_col = "#fc8181" if d["red_zone"] == "Vainasikam" else "#f6ad55"
+                flags.append(
+                    f'<span style="color:{rz_col}">🔴 {d["red_zone"]} — {d["nak_name"]}</span>'
+                )
         if d.get("in_mudakku"):
             flags.append(f'<span style="color:#b794f4">🔒 Mudakku ({mudakku_sign})</span>')
         if d.get("in_soonya") and not (isinstance(crit, dict) and (crit.get("critical") or crit.get("mild"))):
@@ -3165,9 +3216,19 @@ def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
     rz_rows = ""
     for e in rz[:10]:
         is_vainasikam = e.get("type") == "Vainasikam"
-        col   = "#fc8181" if is_vainasikam else "#f6ad55"
-        # Use "Red Zone" wording — distinct from "Critical Obstruction" (Combust+Gandanta+Soonya)
-        label = "🔴 Red Zone — Vainasikam" if is_vainasikam else "⚠️ Red Zone — Vadhai"
+        has_pk        = e.get("has_pushkara", False)
+        if has_pk:
+            col   = "#ffd700"
+            label = "🌟 Transformational"
+            note  = f'<div style="color:#ffd700;font-size:0.76rem;margin-top:3px">Visha→Amrita: Pushkara active at entry — opportunity window, not a warning</div>'
+        elif is_vainasikam:
+            col   = "#fc8181"
+            label = "🔴 Red Zone — Vainasikam"
+            note  = ""
+        else:
+            col   = "#f6ad55"
+            label = "⚠️ Red Zone — Vadhai"
+            note  = ""
         rz_rows += f"""
   <div style="background:#16202e;border-left:3px solid {col};border-radius:6px;padding:10px 14px;margin-bottom:6px">
     <span style="{pill_css};background:#2d3748;color:{col}">{label}</span>
@@ -3178,6 +3239,7 @@ def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
     <span style="color:#718096;font-size:0.76rem">
       ({e.get('days_away',0)} days away)
     </span>
+    {note}
   </div>"""
 
     # Critical Soonya windows
@@ -3336,7 +3398,16 @@ def run_dosha_analysis(
         err = f"⚠️ Error: {exc}"
         return err, err, "", err
 
-    blueprint_html = _dosha_blueprint_html(od.natal_profile)
+    # Compute Soonya exit times for each transit planet currently in a Soonya Rasi
+    from obstruction_dosha import get_soonya_exit_time
+    soonya_exits: dict = {}
+    for p_name, pd in od.transit_status.items():
+        if pd.get("in_soonya"):
+            soonya_exits[p_name] = get_soonya_exit_time(
+                p_name, pd["sign_idx"], od._transit_dt
+            )
+
+    blueprint_html = _dosha_blueprint_html(od.natal_profile, soonya_exits)
     transit_html   = _dosha_transit_table_html(od.transit_status, od.natal_profile)
     forecast_html  = _dosha_forecast_html(od.forecast, od.natal_profile)
     forecast_html += _dosha_reference_html()

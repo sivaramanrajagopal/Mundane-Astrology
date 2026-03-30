@@ -58,6 +58,15 @@ _PLANET_IDS = {
 }
 _MALEFICS = {"Sun", "Mars", "Saturn", "Rahu", "Ketu"}
 
+# ── Traditional sign lords (7-planet scheme, no Rahu/Ketu) ────────────────────
+_SIGN_LORDS_BY_IDX: dict[int, str] = {
+    0: "Mars", 1: "Venus", 2: "Mercury", 3: "Moon",
+    4: "Sun",  5: "Mercury", 6: "Venus",  7: "Mars",
+    8: "Jupiter", 9: "Saturn", 10: "Saturn", 11: "Jupiter",
+}
+
+_FAST_PLANETS  = {"Moon", "Sun", "Mercury", "Venus"}
+
 # ── Tithi → Soonya Rasi mapping (0-based sign indices) ────────────────────────
 # Source: Classical Tamil Jyotish / Daghda Rasi tradition.
 # Soonya = "void/empty" sign for that Tithi — planets here deliver weakened results.
@@ -229,6 +238,114 @@ def check_critical_obstruction(planet_data: dict, soonya_rasis: list[int]) -> di
     }
 
 
+def get_soonya_exit_time(
+    planet_name: str,
+    soonya_sign_idx: int,
+    ref_dt: datetime.datetime,
+) -> dict:
+    """
+    Find when a planet currently in a Soonya Rasi will exit the sign,
+    and whether it enters a Pushkara Navamsa zone before leaving.
+
+    Fast planets (Moon/Sun/Mercury/Venus): 1-hour steps.
+    Slow planets: 1-day steps.
+
+    Returns:
+        logical_exit     — datetime when planet leaves the sign (or None if not found)
+        pushkara_recovery — datetime when planet first enters Pushkara WITHIN Soonya sign
+        retrograde       — bool
+        remaining_hours  — float or None
+        remedy_window_start — datetime when planet enters the last 1° of the sign
+    """
+    # Resolve planet id
+    if planet_name in _PLANET_IDS:
+        p_id = _PLANET_IDS[planet_name]
+    elif planet_name == "Rahu":
+        p_id = swe.TRUE_NODE
+    elif planet_name == "Ketu":
+        p_id = None   # derived from Rahu
+    else:
+        return {"logical_exit": None, "pushkara_recovery": None,
+                "retrograde": False, "remaining_hours": None,
+                "remedy_window_start": None}
+
+    sign_lo = soonya_sign_idx * 30.0
+    sign_hi = sign_lo + 30.0          # 360.0 for Pisces — that's fine (lon never exceeds 360)
+
+    def _lon(jd: float) -> float:
+        if planet_name == "Ketu":
+            rahu_xx, _ = swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)
+            return (rahu_xx[0] + 180) % 360
+        else:
+            xx, _ = swe.calc_ut(jd, p_id, _FLAGS)
+            return xx[0]
+
+    def _speed(jd: float) -> float:
+        if planet_name == "Ketu":
+            rahu_xx, _ = swe.calc_ut(jd, swe.TRUE_NODE, _FLAGS)
+            return -rahu_xx[3]   # Ketu moves opposite to Rahu
+        else:
+            xx, _ = swe.calc_ut(jd, p_id, _FLAGS)
+            return xx[3]
+
+    ref_jd = swe.julday(
+        ref_dt.year, ref_dt.month, ref_dt.day,
+        ref_dt.hour + ref_dt.minute / 60.0 + ref_dt.second / 3600.0,
+    )
+
+    # Verify planet is in the specified sign
+    curr_lon = _lon(ref_jd)
+    if not (sign_lo <= curr_lon < sign_hi):
+        return {"logical_exit": None, "pushkara_recovery": None,
+                "retrograde": False, "remaining_hours": 0,
+                "remedy_window_start": None}
+
+    is_retrograde = _speed(ref_jd) < 0
+
+    # Adaptive step: hourly for fast planets, daily for slow
+    step_h  = 1 if planet_name in _FAST_PLANETS else 24
+    max_steps = (
+        120  if planet_name == "Moon"   else     # 5 days
+        900  if planet_name in ("Sun", "Mercury", "Venus") else  # ~37 days
+        9600                                      # 400 days for Mars/Jupiter/Saturn/nodes
+    )
+
+    logical_exit        = None
+    pushkara_recovery   = None
+    remedy_window_start = None
+    remedy_lon          = sign_hi - 1.0          # last 1° before exit
+
+    for step in range(1, max_steps + 1):
+        jd  = ref_jd + step * step_h / 24.0
+        lon = _lon(jd)
+        dt  = ref_dt + datetime.timedelta(hours=step * step_h)
+
+        # Exit detection
+        if not (sign_lo <= lon < sign_hi):
+            logical_exit = dt
+            break
+
+        # Pushkara early-recovery (first entry into Pushkara within Soonya sign)
+        if pushkara_recovery is None and check_pushkara(lon).get("pushkara"):
+            pushkara_recovery = dt
+
+        # Remedy window: first time planet crosses last-1° threshold
+        if remedy_window_start is None and lon >= remedy_lon:
+            remedy_window_start = dt
+
+    remaining_hours = None
+    if logical_exit:
+        remaining_hours = (logical_exit - ref_dt).total_seconds() / 3600.0
+
+    return {
+        "logical_exit":        logical_exit,
+        "pushkara_recovery":   pushkara_recovery,
+        "retrograde":          is_retrograde,
+        "remaining_hours":     remaining_hours,
+        "remedy_window_start": remedy_window_start,
+    }
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Combined 90-Day Scanner (single day-loop, all dosha types)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -317,13 +434,16 @@ def scan_all_dosha_transits(
                     (vainasikam_nak_idx, "Vainasikam"),
                 ]:
                     if curr_nak == nak_idx:
+                        pk_at_entry = check_pushkara(p_lon)
                         red_zone_entries.append({
-                            "planet":      p_name,
-                            "type":        nak_type,
-                            "nak_name":    NAKSHATRAS[nak_idx],
-                            "entry_date":  day_date,
-                            "days_away":   d,
-                            "severity":    "CRITICAL" if nak_type == "Vainasikam" else "WARNING",
+                            "planet":        p_name,
+                            "type":          nak_type,
+                            "nak_name":      NAKSHATRAS[nak_idx],
+                            "entry_date":    day_date,
+                            "days_away":     d,
+                            "severity":      "CRITICAL" if nak_type == "Vainasikam" else "WARNING",
+                            "has_pushkara":  pk_at_entry.get("pushkara", False),
+                            "pushkara_zone": pk_at_entry.get("zone", ""),
                         })
 
             prev_nak[p_name] = curr_nak
@@ -368,13 +488,16 @@ def scan_all_dosha_transits(
                     (vainasikam_nak_idx, "Vainasikam"),
                 ]:
                     if curr_nak == nak_idx:
+                        pk_node = check_pushkara(node_lon)
                         red_zone_entries.append({
-                            "planet":     node_name,
-                            "type":       nak_type,
-                            "nak_name":   NAKSHATRAS[nak_idx],
-                            "entry_date": day_date,
-                            "days_away":  d,
-                            "severity":   "CRITICAL",   # nodes at Red Zones are always critical
+                            "planet":        node_name,
+                            "type":          nak_type,
+                            "nak_name":      NAKSHATRAS[nak_idx],
+                            "entry_date":    day_date,
+                            "days_away":     d,
+                            "severity":      "CRITICAL",
+                            "has_pushkara":  pk_node.get("pushkara", False),
+                            "pushkara_zone": pk_node.get("zone", ""),
                         })
 
             prev_nak[node_name] = curr_nak
@@ -518,6 +641,16 @@ class ObstructionDosha:
                 "in_soonya": node_sign in soonya_rasis,
             }
 
+        lagna_sign_idx = int(lagna_lon / 30) % 12
+        mudakku_house  = (mudakku["sign_idx"] - lagna_sign_idx) % 12 + 1
+
+        # Precompute house lordships: planet → [house_numbers_it_rules]
+        house_lordships: dict[str, list[int]] = {}
+        for s in range(12):
+            lord = _SIGN_LORDS_BY_IDX[s]
+            h    = (s - lagna_sign_idx) % 12 + 1
+            house_lordships.setdefault(lord, []).append(h)
+
         return {
             # Tithi layer
             "tithi_idx":           tithi_idx,
@@ -542,9 +675,13 @@ class ObstructionDosha:
             "chandrashtama_english":  RASIS_ENGLISH[chandrashtama_sign],
             # Mudakku layer
             "mudakku":             mudakku,
+            "mudakku_house":       mudakku_house,
             "lagna_longitude":     lagna_lon,
-            "lagna_sign":          RASIS[int(lagna_lon / 30)],
-            "lagna_english":       RASIS_ENGLISH[int(lagna_lon / 30)],
+            "lagna_sign_idx":      lagna_sign_idx,
+            "lagna_sign":          RASIS[lagna_sign_idx],
+            "lagna_english":       RASIS_ENGLISH[lagna_sign_idx],
+            # House lordships (planet → [house numbers ruled])
+            "house_lordships":     house_lordships,
             # Planet-level Soonya map
             "natal_planets":       natal_planets,
         }
@@ -585,11 +722,19 @@ class ObstructionDosha:
             in_chandrashtama = (p_name == "Moon" and p_sign == chandrashtama_idx)
             in_mudakku     = (p_sign == mudakku_sign_idx)
 
-            red_zone = None
+            red_zone_raw = None
             if p_nak == vainasikam_nak_idx:
-                red_zone = "Vainasikam"
+                red_zone_raw = "Vainasikam"
             elif p_nak == vadhai_nak_idx:
-                red_zone = "Vadhai"
+                red_zone_raw = "Vadhai"
+
+            # Pushkara active in a Red Zone → Visha becomes Amrita (Transformational)
+            if red_zone_raw and pushkara.get("pushkara"):
+                red_zone = "Transformational"
+            else:
+                red_zone = red_zone_raw
+
+            lagna_sign_idx = int(self._natal_profile["lagna_sign_idx"])
 
             crit = check_critical_obstruction(
                 {"sign_idx": p_sign, "combust": combust,
@@ -602,10 +747,12 @@ class ObstructionDosha:
                 "sign_idx":         p_sign,
                 "sign":             RASIS[p_sign],
                 "nak_name":         NAKSHATRAS[p_nak],
+                "house_num":        (p_sign - lagna_sign_idx) % 12 + 1,
                 "in_soonya":        in_soonya,
                 "in_chandrashtama": in_chandrashtama,
                 "in_mudakku":       in_mudakku,
                 "red_zone":         red_zone,
+                "red_zone_raw":     red_zone_raw,
                 "combust":          combust,
                 "gandanta":         gandanta,
                 "pushkara":         pushkara,
@@ -627,20 +774,23 @@ class ObstructionDosha:
 
             in_soonya  = n_sign in soonya_rasis
             in_mudakku = (n_sign == mudakku_sign_idx)
-            red_zone   = (
+            red_zone_raw = (
                 "Vainasikam" if n_nak == vainasikam_nak_idx
                 else ("Vadhai" if n_nak == vadhai_nak_idx else None)
             )
+            red_zone = "Transformational" if (red_zone_raw and pk.get("pushkara")) else red_zone_raw
 
             status[node_name] = {
                 "longitude":        node_lon,
                 "sign_idx":         n_sign,
                 "sign":             RASIS[n_sign],
                 "nak_name":         NAKSHATRAS[n_nak],
+                "house_num":        (n_sign - lagna_sign_idx) % 12 + 1,
                 "in_soonya":        in_soonya,
                 "in_chandrashtama": False,
                 "in_mudakku":       in_mudakku,
                 "red_zone":         red_zone,
+                "red_zone_raw":     red_zone_raw,
                 "combust":          _node_c,
                 "gandanta":         g,
                 "pushkara":         pk,
@@ -775,16 +925,46 @@ def _build_dosha_prompt(
         )
     upcoming_str = "\n".join(upcoming) if upcoming else "No major obstruction windows in the next 90 days."
 
+    # ── House lordship context ────────────────────────────────────────────────
+    lordships = profile.get("house_lordships", {})
+    house_ctx_lines = []
+    for p_name, d in transit.items():
+        h_num    = d.get("house_num")
+        h_rules  = lordships.get(p_name, [])
+        if h_num and h_rules:
+            significations = {
+                1: "Self/Personality", 2: "Wealth/Speech", 3: "Courage/Siblings",
+                4: "Home/Mind/Mother", 5: "Intelligence/Children", 6: "Service/Debt/Enemies",
+                7: "Partnerships/Marriage", 8: "Obstacles/Transformation",
+                9: "Dharma/Fortune", 10: "Career/Reputation", 11: "Gains/Network",
+                12: "Loss/Liberation/Foreign",
+            }
+            placed_in = significations.get(h_num, f"House {h_num}")
+            rules_str = " & ".join(
+                f"House {r} ({significations.get(r, str(r))})" for r in sorted(h_rules)
+            )
+            house_ctx_lines.append(
+                f"- {p_name}: placed in House {h_num} ({placed_in}); rules {rules_str}"
+            )
+    house_ctx_str = "\n".join(house_ctx_lines) if house_ctx_lines else "N/A"
+
+    mudakku_house = profile.get("mudakku_house", "?")
+    double_8th    = " — DOUBLE 8TH EFFECT (heightened karmic sensitivity)" if mudakku_house == 8 else ""
+
     return f"""
 Natal Obstruction Dosha Profile:
 - Birth Tithi: {profile['tithi_name']} ({profile['paksha']} Paksha)
+- Lagna (Ascendant): {profile.get('lagna_english','?')} ({profile.get('lagna_sign','?')})
 - Thithi Soonya Rasis (void signs for this native): {soonya_str}
 - NATAL PLANETS PERMANENTLY IN SOONYA: {natal_soonya_str}
 - Janma Nakshatra: {profile['moon_nak_name']}
 - Vadhai Nakshatra (7th — Destruction): {profile['vadhai_nak_name']}
 - Vainasikam Nakshatra (22nd — Annihilation): {profile['vainasikam_nak_name']}
 - Chandrashtama Sign (8th from natal Moon): {profile['chandrashtama_english']} ({profile['chandrashtama_sign']})
-- Mudakku Rasi (Blocked, 22nd Drekkana from Lagna): {profile['mudakku']['sign_english']} {profile['mudakku']['degree_lo']}–{profile['mudakku']['degree_hi']}°
+- Mudakku Rasi (Blocked sign, House {mudakku_house} from Lagna{double_8th}): {profile['mudakku']['sign_english']} {profile['mudakku']['degree_lo']}–{profile['mudakku']['degree_hi']}°
+
+House Placement & Lordship for Transit Planets:
+{house_ctx_str}
 
 Current Transit Status:
 {active_str}
@@ -794,15 +974,19 @@ Upcoming 90-Day Obstruction Windows:
 
 Instructions:
 1. FIRST — state which natal planets are permanently in Soonya Rasi and explain the lifelong
-   significance (e.g. Moon in Soonya = emotional instability, erratic mental results from birth).
+   significance (e.g. Moon in Soonya = emotional instability from birth, efforts feel 'swallowed').
 2. For each ACTIVE transit obstruction: state the planet, say it has "Visha Gati" (poisonous
-   movement), describe the life area affected. Only mention Pushkara Divine Protection if the
-   data explicitly confirms it is active — do NOT speculate.
-3. For upcoming windows: describe each concisely. Only call a window "critical" if the data
-   labels it as Critical Obstruction. Red Zone transits should be called "Red Zone window".
+   movement), use the House Placement & Lordship data above to describe the SPECIFIC life area
+   affected (e.g. 'Moon as 6th lord transiting House 3 affects service/work communications').
+   Only mention Pushkara Divine Protection if the data explicitly confirms it is active.
+   If a Red Zone transit shows 'Transformational' status, describe it as Visha->Amrita (poison
+   converted to nectar) — a rare opportunity window, not a warning.
+3. For upcoming windows: describe each concisely using house context. Only call a window
+   "critical" if the data labels it Critical Obstruction. Red Zone transits should be called
+   "Red Zone window". If has_pushkara is True for a Red Zone entry, call it "Transformational".
 4. Give 2-3 practical action tips for the most urgent upcoming window.
 5. End with one grounding sentence about overall karmic picture.
-6. Keep the total response under 450 words. Use plain language — avoid excessive Sanskrit jargon.
+6. Keep the total response under 500 words. Use plain language.
 """
 
 
