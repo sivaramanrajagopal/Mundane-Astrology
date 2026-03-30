@@ -54,6 +54,11 @@ from natal_protection import (
     VIMSHOTTARI_YEARS,
     check_pushkara,
 )
+from obstruction_dosha import (
+    ObstructionDosha,
+    TITHI_NAMES,
+    TITHI_SOONYA_MAP,
+)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 COUNTRIES      = list(COUNTRY_LAGNAS.keys())
@@ -2926,6 +2931,424 @@ def run_protection_analysis(dob: str, tob: str, lat, lon, transit_date: str = No
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tab 8 — Dosha Radar HTML helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SEVERITY_COLOURS = {
+    "critical":        ("#fc8181", "🚨"),
+    "critical_divine": ("#ffd700", "⭐"),
+    "mild":            ("#f6ad55", "🟠"),
+    "mild_divine":     ("#90cdf4", "⭐"),
+    "none":            ("#48bb78", "✅"),
+}
+
+
+def _dosha_blueprint_html(profile: dict) -> str:
+    """4-card static blueprint: Tithi Soonya / Red Zones / Chandrashtama / Mudakku."""
+    soonya_str = " · ".join(profile.get("soonya_signs", [])) or "None (Purnima/Amavasya birth)"
+    mudakku    = profile.get("mudakku", {})
+
+    # Which natal planets fall in Soonya Rasis?
+    soonya_planets = [
+        f"{p} ({d['sign']})"
+        for p, d in profile.get("natal_planets", {}).items()
+        if d.get("in_soonya")
+    ]
+    soonya_planet_str = ", ".join(soonya_planets) if soonya_planets else "None — all natal planets clear"
+
+    card_css = (
+        "background:#16202e;border:1px solid #2d3748;border-radius:10px;"
+        "padding:14px 16px;font-size:0.83rem;color:#cbd5e0"
+    )
+    label_css = "color:#718096;font-size:0.72rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px"
+    val_css   = "font-size:1rem;font-weight:600;margin-bottom:4px"
+
+    return f"""
+<div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:12px">
+  🔯 Your Dosha Blueprint
+  <span style="font-size:0.75rem;font-weight:400;color:#718096;margin-left:8px">
+    (natal — fixed for this birth chart)
+  </span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
+
+  <!-- Tithi Soonya -->
+  <div style="{card_css}">
+    <div style="{label_css}">🔯 Thithi Soonya Rasis</div>
+    <div style="{val_css}">{profile.get('tithi_name','?')} · {profile.get('paksha','?')} Paksha</div>
+    <div style="color:#f6ad55;margin-bottom:4px">Void signs: {soonya_str}</div>
+    <div style="color:#718096;font-size:0.78rem">
+      Natal planets in Soonya: {soonya_planet_str}
+    </div>
+  </div>
+
+  <!-- Red Zone Nakshatras -->
+  <div style="{card_css}">
+    <div style="{label_css}">🔴 Red Zone Nakshatras</div>
+    <div style="{val_css}">Janma Nak: {profile.get('moon_nak_name','?')}</div>
+    <div style="color:#fc8181;margin-bottom:3px">
+      Vadhai (7th): <strong>{profile.get('vadhai_nak_name','?')}</strong> — Destruction
+    </div>
+    <div style="color:#fc8181">
+      Vainasikam (22nd): <strong>{profile.get('vainasikam_nak_name','?')}</strong> — Annihilation
+    </div>
+    <div style="color:#718096;font-size:0.78rem;margin-top:4px">
+      Malefic transits here trigger danger windows
+    </div>
+  </div>
+
+  <!-- Chandrashtama -->
+  <div style="{card_css}">
+    <div style="{label_css}">🌑 Chandrashtama</div>
+    <div style="{val_css}">
+      {profile.get('chandrashtama_english','?')} ({profile.get('chandrashtama_sign','?')})
+    </div>
+    <div style="color:#90cdf4;margin-bottom:4px">
+      8th from natal Moon ({profile.get('natal_moon_sign','?')})
+    </div>
+    <div style="color:#718096;font-size:0.78rem">
+      ~2.5-day stress window each month when transit Moon crosses here.
+      Avoid major decisions; guard emotional health.
+    </div>
+  </div>
+
+  <!-- Mudakku Rasi -->
+  <div style="{card_css}">
+    <div style="{label_css}">🔒 Mudakku Rasi (Blocked)</div>
+    <div style="{val_css}">
+      {mudakku.get('sign_english','?')} ({mudakku.get('sign_name','?')})
+    </div>
+    <div style="color:#b794f4;margin-bottom:4px">
+      22nd Drekkana from Lagna ({profile.get('lagna_english','?')})
+      · {mudakku.get('degree_lo',0)}°–{mudakku.get('degree_hi',10)}° ·
+      Drekkana {mudakku.get('drekkana_num',1)}
+    </div>
+    <div style="color:#718096;font-size:0.78rem">
+      Malefic transits here amplify karmic delays and obstructions.
+    </div>
+  </div>
+
+</div>
+"""
+
+
+def _dosha_transit_table_html(transit_status: dict, profile: dict) -> str:
+    """Traffic-light table of transiting planets vs live dosha map."""
+    if not transit_status:
+        return ""
+
+    soonya_signs = profile.get("soonya_signs", [])
+    c_sign       = profile.get("chandrashtama_sign", "")
+    mudakku_sign = profile.get("mudakku", {}).get("sign_name", "")
+
+    rows = ""
+    for p_name, d in transit_status.items():
+        crit  = d.get("critical_obstruction", _SEVERITY_COLOURS)
+        sev   = crit.get("severity", "none") if isinstance(crit, dict) else "none"
+        col, emoji = _SEVERITY_COLOURS.get(sev, ("#48bb78", "✅"))
+
+        flags = []
+        if crit.get("critical") if isinstance(crit, dict) else False:
+            if crit.get("has_divine_protection"):
+                flags.append('<span style="color:#ffd700">⭐ Divine Protection (Pushkara)</span>')
+            else:
+                flags.append('<span style="color:#fc8181">🚨 CRITICAL OBSTRUCTION</span>')
+            note = crit.get("visha_gati_note", "")
+            if note:
+                flags.append(f'<span style="color:#718096;font-size:0.76rem">{note[:80]}…</span>')
+        elif isinstance(crit, dict) and crit.get("mild"):
+            if crit.get("has_divine_protection"):
+                flags.append('<span style="color:#90cdf4">⭐ Mild + Pushkara</span>')
+            else:
+                flags.append('<span style="color:#f6ad55">🟠 Mild Obstruction</span>')
+
+        if d.get("in_chandrashtama"):
+            flags.append(f'<span style="color:#b794f4">🌑 Chandrashtama ({c_sign})</span>')
+        if d.get("red_zone"):
+            rz_col = "#fc8181" if d["red_zone"] == "Vainasikam" else "#f6ad55"
+            flags.append(
+                f'<span style="color:{rz_col}">🔴 {d["red_zone"]} ({d["nak_name"]})</span>'
+            )
+        if d.get("in_mudakku"):
+            flags.append(f'<span style="color:#b794f4">🔒 Mudakku ({mudakku_sign})</span>')
+        if d.get("in_soonya") and not (isinstance(crit, dict) and (crit.get("critical") or crit.get("mild"))):
+            flags.append(f'<span style="color:#f6ad55">⚠️ Soonya Rasi ({d["sign"]})</span>')
+
+        if not flags:
+            flags.append('<span style="color:#48bb78">✅ Clear</span>')
+
+        flag_html = "<br>".join(flags)
+
+        # Combust / Gandanta summary for last column
+        afflictions = []
+        c = d.get("combust", {})
+        g = d.get("gandanta", {})
+        pk = d.get("pushkara", {})
+        if c.get("deep"):
+            afflictions.append(f'<span style="color:#fc8181">🔥 Deep ({c.get("orb",0):.1f}°)</span>')
+        elif c.get("combust"):
+            afflictions.append(f'<span style="color:#f6ad55">🔥 Combust ({c.get("orb",0):.1f}°)</span>')
+        if g.get("gandanta"):
+            afflictions.append(f'<span style="color:#b794f4">⚡ Gandanta</span>')
+        if pk.get("pushkara"):
+            afflictions.append(f'<span style="color:#ffd700">🕉️ Pushkara</span>')
+
+        aff_html = " ".join(afflictions) if afflictions else '<span style="color:#4a5568">—</span>'
+
+        rows += f"""
+<tr style="border-bottom:1px solid #2d3748">
+  <td style="padding:7px 10px;color:#e2e8f0;font-weight:600">{p_name}</td>
+  <td style="padding:7px 10px;color:#a0aec0">{d.get("sign","?")}</td>
+  <td style="padding:7px 10px;color:#a0aec0">{d.get("nak_name","?")}</td>
+  <td style="padding:7px 10px">{flag_html}</td>
+  <td style="padding:7px 10px">{aff_html}</td>
+</tr>"""
+
+    return f"""
+<div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin:16px 0 10px">
+  🌐 Live Transit Dosha Scan
+</div>
+<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+<table style="width:100%;min-width:560px;border-collapse:collapse;font-size:0.82rem">
+  <thead>
+    <tr style="color:#718096;font-size:0.74rem;border-bottom:2px solid #4a5568">
+      <th style="text-align:left;padding:6px 10px">Planet</th>
+      <th style="text-align:left;padding:6px 10px">Sign</th>
+      <th style="text-align:left;padding:6px 10px">Nakshatra</th>
+      <th style="text-align:left;padding:6px 10px">Dosha Status</th>
+      <th style="text-align:left;padding:6px 10px">Afflictions</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>
+"""
+
+
+def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
+    """90-day timeline cards for all three forecast types."""
+    c_wins  = forecast.get("chandrashtama_windows", [])
+    rz      = forecast.get("red_zone_entries", [])
+    cw      = forecast.get("critical_windows", [])
+
+    if not c_wins and not rz and not cw:
+        return (
+            '<div style="color:#48bb78;padding:12px;font-size:0.85rem">'
+            '✅ No obstruction doshas detected in the next 90 days.</div>'
+        )
+
+    pill_css = (
+        "display:inline-block;padding:3px 8px;border-radius:12px;"
+        "font-size:0.74rem;font-weight:600;margin-right:4px"
+    )
+
+    # Chandrashtama windows
+    c_rows = ""
+    for w in c_wins[:8]:
+        days_away = w.get("days_away", 0)
+        soon = days_away <= 7
+        border = "border-left:3px solid #b794f4"
+        c_rows += f"""
+  <div style="background:#16202e;{border};border-radius:6px;padding:10px 14px;margin-bottom:6px">
+    <span style="{pill_css};background:#2d3748;color:#b794f4">🌑 Chandrashtama</span>
+    <strong style="color:#e2e8f0">{w['start_date'].strftime('%d %b %Y')}</strong>
+    <span style="color:#718096;font-size:0.78rem">
+      · ~{w.get('duration_days',2)} days · 8th house transit
+      {'<span style="color:#fc8181"> — Soon!</span>' if soon else ''}
+    </span>
+    <div style="color:#718096;font-size:0.76rem;margin-top:3px">
+      Avoid major decisions · guard emotional health · delay contracts
+    </div>
+  </div>"""
+
+    # Red Zone entries
+    rz_rows = ""
+    for e in rz[:10]:
+        is_vainasikam = e.get("type") == "Vainasikam"
+        col   = "#fc8181" if is_vainasikam else "#f6ad55"
+        label = "🔴 CRITICAL" if is_vainasikam else "⚠️ WARNING"
+        rz_rows += f"""
+  <div style="background:#16202e;border-left:3px solid {col};border-radius:6px;padding:10px 14px;margin-bottom:6px">
+    <span style="{pill_css};background:#2d3748;color:{col}">{label}</span>
+    <strong style="color:#e2e8f0">{e.get('planet','?')}</strong>
+    <span style="color:#718096"> enters </span>
+    <strong style="color:{col}">{e.get('type','?')} ({e.get('nak_name','?')})</strong>
+    <span style="color:#a0aec0"> on {e['entry_date'].strftime('%d %b %Y')}</span>
+    <span style="color:#718096;font-size:0.76rem">
+      ({e.get('days_away',0)} days away)
+    </span>
+  </div>"""
+
+    # Critical Soonya windows
+    crit_rows = ""
+    for w in cw[:6]:
+        col   = "#ffd700" if w.get("has_divine") else "#fc8181"
+        badge = "⭐ Divine Protection" if w.get("has_divine") else "🚨 Critical"
+        crit_rows += f"""
+  <div style="background:#16202e;border-left:3px solid {col};border-radius:6px;padding:10px 14px;margin-bottom:6px">
+    <span style="{pill_css};background:#2d3748;color:{col}">{badge}</span>
+    <strong style="color:#e2e8f0">{w.get('planet','?')}</strong>
+    <span style="color:#718096"> in Soonya ({w.get('soonya_sign','?')}) + </span>
+    <span style="color:#f6ad55">{w.get('affliction_type','?')}</span>
+    <span style="color:#a0aec0"> on {w['date'].strftime('%d %b %Y')}</span>
+    {'<div style="color:#ffd700;font-size:0.76rem;margin-top:3px">Visha Gati neutralised by Pushkara — divine recovery expected</div>' if w.get("has_divine") else '<div style="color:#fc8181;font-size:0.76rem;margin-top:3px">Visha Gati active — exercise caution during this window</div>'}
+  </div>"""
+
+    sections = ""
+    if c_rows:
+        sections += f"""
+<details open style="margin-bottom:12px">
+  <summary style="background:#1a2535;border:1px solid #2d3748;border-radius:8px;
+                  padding:10px 14px;color:#b794f4;font-size:0.84rem;cursor:pointer;
+                  list-style:none;display:flex;justify-content:space-between;align-items:center">
+    <span>🌑 Chandrashtama Windows ({len(c_wins)} in 90 days)</span>
+    <span style="font-size:0.74rem;color:#718096">click to collapse</span>
+  </summary>
+  <div style="padding:10px 4px">{c_rows}</div>
+</details>"""
+
+    if rz_rows:
+        sections += f"""
+<details open style="margin-bottom:12px">
+  <summary style="background:#1a2535;border:1px solid #2d3748;border-radius:8px;
+                  padding:10px 14px;color:#fc8181;font-size:0.84rem;cursor:pointer;
+                  list-style:none;display:flex;justify-content:space-between;align-items:center">
+    <span>🔴 Red Zone Transits ({len(rz)} entries in 90 days)</span>
+    <span style="font-size:0.74rem;color:#718096">click to collapse</span>
+  </summary>
+  <div style="padding:10px 4px">{rz_rows}</div>
+</details>"""
+
+    if crit_rows:
+        sections += f"""
+<details open style="margin-bottom:12px">
+  <summary style="background:#1a2535;border:1px solid #2d3748;border-radius:8px;
+                  padding:10px 14px;color:#f6ad55;font-size:0.84rem;cursor:pointer;
+                  list-style:none;display:flex;justify-content:space-between;align-items:center">
+    <span>🚨 Critical Obstruction Windows ({len(cw)} in 90 days)</span>
+    <span style="font-size:0.74rem;color:#718096">click to collapse</span>
+  </summary>
+  <div style="padding:10px 4px">{crit_rows}</div>
+</details>"""
+
+    return f"""
+<div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin:16px 0 10px">
+  📅 90-Day Obstruction Forecast
+</div>
+{sections}
+"""
+
+
+def _dosha_reference_html() -> str:
+    """Collapsible glossary of the 4 Dosha concepts (minimised by default)."""
+    row_even = "background:#16202e"
+    return f"""
+<details style="margin-top:14px" class="ma-accordion">
+  <summary style="background:#1a2535;border:1px solid #2d3748;border-radius:8px;
+                  padding:10px 14px;color:#a0aec0;font-size:0.82rem;cursor:pointer;
+                  list-style:none;display:flex;justify-content:space-between;align-items:center">
+    <span>📖 Reference: Obstruction Dosha Concepts</span>
+    <span style="font-size:0.74rem;color:#718096">click to expand</span>
+  </summary>
+  <div style="background:#0f172a;border:1px solid #2d3748;border-top:none;
+              border-radius:0 0 8px 8px;padding:14px 16px;font-size:0.82rem;color:#cbd5e0">
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+
+      <!-- Tithi Soonya -->
+      <div>
+        <div style="color:#f6ad55;font-weight:600;margin-bottom:6px">🔯 Thithi Soonya Rasis</div>
+        <div style="color:#a0aec0;margin-bottom:8px">
+          Each Tithi (lunar day) has 1–4 "void" signs where planet results weaken.
+          Planets placed here in transit deliver reduced or erratic results.
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+          <thead><tr style="color:#718096;border-bottom:1px solid #2d3748">
+            <th style="text-align:left;padding:3px 6px">Tithi</th>
+            <th style="text-align:left;padding:3px 6px">Void Signs</th>
+          </tr></thead>
+          <tbody>
+            {''.join(
+              f'<tr style="{row_even if i%2==0 else ""}"><td style="padding:3px 6px">{TITHI_NAMES[i]}</td>'
+              f'<td style="padding:3px 6px">{", ".join(["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"][j] for j in TITHI_SOONYA_MAP.get(i,[])) or "None"}</td></tr>'
+              for i in range(15)
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Red Zones -->
+      <div>
+        <div style="color:#fc8181;font-weight:600;margin-bottom:6px">🔴 Red Zone Nakshatras</div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin-bottom:10px">
+          <thead><tr style="color:#718096;border-bottom:1px solid #2d3748">
+            <th style="text-align:left;padding:3px 6px">Name</th>
+            <th style="text-align:left;padding:3px 6px">Position</th>
+            <th style="text-align:left;padding:3px 6px">Meaning</th>
+          </tr></thead>
+          <tbody>
+            <tr><td style="padding:3px 6px">Vadhai</td><td style="padding:3px 6px">7th from Janma</td><td style="padding:3px 6px">Destruction</td></tr>
+            <tr style="{row_even}"><td style="padding:3px 6px">Vainasikam</td><td style="padding:3px 6px">22nd from Janma</td><td style="padding:3px 6px">Annihilation</td></tr>
+          </tbody>
+        </table>
+        <div style="color:#b794f4;font-weight:600;margin-bottom:6px;margin-top:10px">🌑 Chandrashtama</div>
+        <div style="color:#a0aec0;font-size:0.78rem">
+          8th sign from natal Moon. Transit Moon here = ~2.5 days of
+          anxiety, fatigue, poor decisions. Occurs ~13× per year.
+        </div>
+        <div style="color:#b794f4;font-weight:600;margin-bottom:6px;margin-top:10px">🔒 Mudakku Rasi</div>
+        <div style="color:#a0aec0;font-size:0.78rem">
+          22nd Drekkana (D3 division) from Ascendant = "blocked" sign.
+          Malefic transits here amplify karmic delays. Formula:
+          (Lagna sign × 3 + Lagna drekkana + 21) mod 36.
+        </div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid #2d3748;color:#718096;font-size:0.76rem">
+      ⚠️ CRITICAL OBSTRUCTION = (Deep Combust OR Gandanta) + Soonya Rasi &nbsp;|&nbsp;
+      ⭐ DIVINE PROTECTION = Same + Pushkara Navamsa active → Visha Gati neutralised
+    </div>
+  </div>
+</details>
+"""
+
+
+def run_dosha_analysis(
+    dob: str, tob: str, lat, lon, transit_date: str = None
+) -> tuple[str, str, str, str]:
+    """
+    Tab 8 main compute function.
+    Returns (blueprint_html, transit_html, forecast_html, ai_markdown).
+    """
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        err = "⚠️ Please enter valid latitude and longitude."
+        return err, err, "", err
+
+    try:
+        od = ObstructionDosha(dob, tob, lat_f, lon_f, transit_date=transit_date or None)
+    except Exception as exc:
+        err = f"⚠️ Error: {exc}"
+        return err, err, "", err
+
+    blueprint_html = _dosha_blueprint_html(od.natal_profile)
+    transit_html   = _dosha_transit_table_html(od.transit_status, od.natal_profile)
+    forecast_html  = _dosha_forecast_html(od.forecast, od.natal_profile)
+    forecast_html += _dosha_reference_html()
+
+    try:
+        ai_text = od.get_ai_reading(openai_api_key=OPENAI_API_KEY)
+    except Exception:
+        ai_text = "⚠️ AI reading unavailable. Check server logs."
+
+    return blueprint_html, transit_html, forecast_html, ai_text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Gradio UI
 # ─────────────────────────────────────────────────────────────────────────────
 with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
@@ -3079,6 +3502,41 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
             gr.Markdown("### 🤖 AI Analysis")
             np_ai_out = gr.Markdown("_Click 'Analyse Protection' to generate the report._")
 
+        # ── Tab 8: Dosha Radar ─────────────────────────────────────────────
+        with gr.Tab("🔥 Dosha Radar"):
+            gr.Markdown(
+                "### 🔥 Obstruction Dosha Radar\n"
+                "Tamil/Sanskrit karmic obstruction map — Thithi Soonya, Vadhai, "
+                "Vainasikam, Chandrashtama & Mudakku Rasi with 90-day forecast."
+            )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("#### 📋 Birth Details")
+                    od_dob   = gr.Textbox(label="Date of Birth (YYYY-MM-DD)", placeholder="1985-06-15")
+                    od_tob   = gr.Textbox(label="Time of Birth (HH:MM, 24h)", placeholder="08:30")
+                    od_place = gr.Textbox(label="Place of Birth (optional)", placeholder="Chennai, India")
+                    with gr.Row():
+                        od_lat = gr.Number(label="Latitude",  precision=4, value=None)
+                        od_lon = gr.Number(label="Longitude", precision=4, value=None)
+                    od_resolve_btn = gr.Button("📍 Resolve Place → Lat/Lon", size="sm")
+                    od_location_md = gr.Markdown("")
+                    with gr.Row():
+                        od_transit_date = gr.Textbox(
+                            label="Transit Date (YYYY-MM-DD)",
+                            value=datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+                            placeholder="2026-03-29",
+                        )
+                        od_today_btn = gr.Button("📅 Today", size="sm")
+                    od_analyse_btn = gr.Button("🔥 Scan Doshas", variant="primary")
+
+                with gr.Column(scale=2):
+                    od_blueprint_out = gr.HTML(label="Dosha Blueprint")
+                    od_transit_out   = gr.HTML(label="Live Transit Scan")
+
+            od_forecast_out = gr.HTML(label="90-Day Forecast")
+            gr.Markdown("### 🤖 AI Dosha Reading")
+            od_ai_out = gr.Markdown("_Click 'Scan Doshas' to generate the obstruction report._")
+
     # ── Event wiring ──────────────────────────────────────────────────────
     calc_btn.click(
         fn=run_calculations,
@@ -3146,6 +3604,23 @@ with gr.Blocks(title="Mundane Astrology Dashboard") as demo:
         fn=run_protection_analysis,
         inputs=[np_dob, np_tob, np_lat, np_lon, np_transit_date],
         outputs=[np_score_out, np_table_out, np_dasha_out, np_ai_out, np_pushkara_out],
+    )
+
+    # ── Tab 8 Dosha Radar wiring ───────────────────────────────────────────
+    od_resolve_btn.click(
+        fn=resolve_location,
+        inputs=[od_place],
+        outputs=[od_lat, od_lon, od_location_md],
+    )
+    od_today_btn.click(
+        fn=lambda: datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+        inputs=[],
+        outputs=[od_transit_date],
+    )
+    od_analyse_btn.click(
+        fn=run_dosha_analysis,
+        inputs=[od_dob, od_tob, od_lat, od_lon, od_transit_date],
+        outputs=[od_blueprint_out, od_transit_out, od_forecast_out, od_ai_out],
     )
 
     # ── Auto-load on page open ─────────────────────────────────────────────
