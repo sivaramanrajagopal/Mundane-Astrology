@@ -3056,6 +3056,39 @@ def _dosha_blueprint_html(profile: dict, soonya_exits: dict | None = None) -> st
   </div>
 
 </div>
+
+  <!-- 9-Tara Map (natal reference) -->
+  <div style="background:#16202e;border:1px solid #2d3748;border-radius:10px;
+              padding:14px 16px;font-size:0.83rem;color:#cbd5e0;margin-top:12px">
+    <div style="color:#718096;font-size:0.72rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
+      🌟 Your 9-Tara Map <span style="font-size:0.68rem;font-weight:400">(Parasara — natal fixed)</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px">
+"""
+    tara_map = profile.get("tara_map", {})
+    _TARA_UI = {
+        1: ("#718096", "⚪", "Janma",        "neutral"),
+        2: ("#9ae6b4", "🟢", "Sampat",       "favorable"),
+        3: ("#f6ad55", "🔴", "Vipat",        "unfavorable"),
+        4: ("#9ae6b4", "🟢", "Kshema",       "favorable"),
+        5: ("#f6ad55", "🔴", "Pratyak",      "unfavorable"),
+        6: ("#68d391", "🟢", "Sadhaka",      "favorable"),
+        7: ("#fc8181", "🔴", "Vadha",        "unfavorable"),
+        8: ("#9ae6b4", "🟢", "Mitra",        "favorable"),
+        9: ("#ffd700", "🌟", "Parama Mitra", "favorable"),
+    }
+    for t_num in range(1, 10):
+        col, icon, t_name, t_nat = _TARA_UI[t_num]
+        naks = ", ".join(tara_map.get(t_num, []))
+        bg   = "#1a2f1a" if t_nat == "favorable" else "#2f1a1a" if t_nat == "unfavorable" else "#1a2535"
+        html += f"""
+      <div style="background:{bg};border-radius:6px;padding:6px 10px">
+        <div style="color:{col};font-size:0.75rem;font-weight:600">{icon} Tara {t_num}: {t_name}</div>
+        <div style="color:#718096;font-size:0.70rem;margin-top:2px">{naks}</div>
+      </div>"""
+    html += """
+    </div>
+  </div>
 """
     # Append soonya lifetime callout if any natal planets are in Soonya
     soonya_natal = [(p, d) for p, d in profile.get("natal_planets", {}).items() if d.get("in_soonya")]
@@ -3146,11 +3179,32 @@ def _dosha_transit_table_html(transit_status: dict, profile: dict) -> str:
 
         aff_html = " ".join(afflictions) if afflictions else '<span style="color:#4a5568">—</span>'
 
+        tara       = d.get("tara", {})
+        tara_num   = tara.get("tara_num", 0)
+        tara_name  = tara.get("tara_name", "—")
+        tara_nat   = tara.get("tara_nature", "neutral")
+        tara_tip   = tara.get("tara_tip", "")
+        tara_col   = (
+            "#ffd700" if tara_num == 9 else      # Parama Mitra — gold
+            "#68d391" if tara_num == 6 else      # Sadhaka — green
+            "#9ae6b4" if tara_num in (2,4,8) else # Sampat/Kshema/Mitra — light green
+            "#fc8181" if tara_num == 7 else      # Vadha — red
+            "#f6ad55" if tara_num in (3,5) else  # Vipat/Pratyak — orange
+            "#718096"                            # Janma — grey
+        )
+        tara_icon  = "🌟" if tara_num == 9 else "🟢" if tara_nat == "favorable" else "🔴" if tara_nat == "unfavorable" else "⚪"
+        tara_html  = (
+            f'<span style="color:{tara_col};font-weight:600" title="{tara_tip}">'
+            f'{tara_icon} {tara_name}</span>'
+            f'<br><span style="color:#4a5568;font-size:0.72rem">Tara {tara_num}</span>'
+        ) if tara_num else '<span style="color:#4a5568">—</span>'
+
         rows += f"""
 <tr style="border-bottom:1px solid #2d3748">
   <td style="padding:7px 10px;color:#e2e8f0;font-weight:600">{p_name}</td>
   <td style="padding:7px 10px;color:#a0aec0">{d.get("sign","?")}</td>
   <td style="padding:7px 10px;color:#a0aec0">{d.get("nak_name","?")}</td>
+  <td style="padding:7px 10px">{tara_html}</td>
   <td style="padding:7px 10px">{flag_html}</td>
   <td style="padding:7px 10px">{aff_html}</td>
 </tr>"""
@@ -3160,12 +3214,13 @@ def _dosha_transit_table_html(transit_status: dict, profile: dict) -> str:
   🌐 Live Transit Dosha Scan
 </div>
 <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-<table style="width:100%;min-width:560px;border-collapse:collapse;font-size:0.82rem">
+<table style="width:100%;min-width:680px;border-collapse:collapse;font-size:0.82rem">
   <thead>
     <tr style="color:#718096;font-size:0.74rem;border-bottom:2px solid #4a5568">
       <th style="text-align:left;padding:6px 10px">Planet</th>
       <th style="text-align:left;padding:6px 10px">Sign</th>
       <th style="text-align:left;padding:6px 10px">Nakshatra</th>
+      <th style="text-align:left;padding:6px 10px">Tara</th>
       <th style="text-align:left;padding:6px 10px">Dosha Status</th>
       <th style="text-align:left;padding:6px 10px">Afflictions</th>
     </tr>
@@ -3181,8 +3236,9 @@ def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
     c_wins  = forecast.get("chandrashtama_windows", [])
     rz      = forecast.get("red_zone_entries", [])
     cw      = forecast.get("critical_windows", [])
+    tw      = forecast.get("tara_windows", [])
 
-    if not c_wins and not rz and not cw:
+    if not c_wins and not rz and not cw and not tw:
         return (
             '<div style="color:#48bb78;padding:12px;font-size:0.85rem">'
             '✅ No obstruction doshas detected in the next 90 days.</div>'
@@ -3192,6 +3248,31 @@ def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
         "display:inline-block;padding:3px 8px;border-radius:12px;"
         "font-size:0.74rem;font-weight:600;margin-right:4px"
     )
+
+    # Tara windows (favorable Moon transits)
+    _TARA_COLORS = {
+        9: "#ffd700",  # Parama Mitra — gold
+        6: "#68d391",  # Sadhaka — green
+        2: "#9ae6b4", 4: "#9ae6b4", 8: "#9ae6b4",  # Sampat/Kshema/Mitra
+    }
+    tara_rows = ""
+    for tw_entry in tw[:12]:
+        t_num  = tw_entry.get("tara_num", 0)
+        t_col  = _TARA_COLORS.get(t_num, "#9ae6b4")
+        t_icon = "🌟" if t_num == 9 else "🟢"
+        t_soon = tw_entry.get("days_away", 99) <= 7
+        tara_rows += f"""
+  <div style="background:#16202e;border-left:3px solid {t_col};border-radius:6px;padding:10px 14px;margin-bottom:6px">
+    <span style="{pill_css};background:#1a2f1a;color:{t_col}">{t_icon} {tw_entry.get('tara_name','?')} Tara</span>
+    <span style="color:#718096"> Moon enters </span>
+    <strong style="color:{t_col}">{tw_entry.get('nak_name','?')}</strong>
+    <span style="color:#a0aec0"> on {tw_entry['entry_date'].strftime('%d %b %Y')}</span>
+    <span style="color:#718096;font-size:0.76rem">
+      ({tw_entry.get('days_away',0)} days away)
+      {'<span style="color:#68d391"> — Soon!</span>' if t_soon else ''}
+    </span>
+    <div style="color:#718096;font-size:0.76rem;margin-top:3px">{tw_entry.get('tara_tip','')}</div>
+  </div>"""
 
     # Chandrashtama windows
     c_rows = ""
@@ -3258,6 +3339,18 @@ def _dosha_forecast_html(forecast: dict, profile: dict) -> str:
   </div>"""
 
     sections = ""
+    if tara_rows:
+        sections += f"""
+<details open style="margin-bottom:12px">
+  <summary style="background:#1a2535;border:1px solid #2d3748;border-radius:8px;
+                  padding:10px 14px;color:#68d391;font-size:0.84rem;cursor:pointer;
+                  list-style:none;display:flex;justify-content:space-between;align-items:center">
+    <span>🟢 Favorable Tara Windows — Moon ({len(tw)} in 90 days)</span>
+    <span style="font-size:0.74rem;color:#718096">click to collapse</span>
+  </summary>
+  <div style="padding:10px 4px">{tara_rows}</div>
+</details>"""
+
     if c_rows:
         sections += f"""
 <details open style="margin-bottom:12px">
@@ -3367,6 +3460,34 @@ def _dosha_reference_html() -> str:
         </div>
       </div>
 
+    </div>
+
+    <!-- 9-Tara Reference -->
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #2d3748">
+      <div style="color:#68d391;font-weight:600;margin-bottom:6px;font-size:0.82rem">🌟 9-Tara System (Parasara)</div>
+      <div style="color:#a0aec0;font-size:0.78rem;margin-bottom:8px">
+        Count from Janma Nakshatra: <code>(transit_nak - janma_nak) % 27</code>, then Tara = <code>(distance % 9) + 1</code>.
+        Moon transits favorable Taras are ACTION windows.
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+        <thead><tr style="color:#718096;border-bottom:1px solid #2d3748">
+          <th style="text-align:left;padding:3px 8px">Tara</th>
+          <th style="text-align:left;padding:3px 8px">Name</th>
+          <th style="text-align:left;padding:3px 8px">Nature</th>
+          <th style="text-align:left;padding:3px 8px">Meaning / Best Action</th>
+        </tr></thead>
+        <tbody>
+          <tr><td style="padding:3px 8px;color:#718096">1</td><td style="padding:3px 8px;color:#718096">Janma</td><td style="padding:3px 8px;color:#718096">Neutral</td><td style="padding:3px 8px;color:#718096">Sensitive period — rest</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 8px;color:#9ae6b4">2</td><td style="padding:3px 8px;color:#9ae6b4">Sampat</td><td style="padding:3px 8px;color:#9ae6b4">✅ Favorable</td><td style="padding:3px 8px;color:#a0aec0">Wealth & prosperity — financial decisions</td></tr>
+          <tr><td style="padding:3px 8px;color:#f6ad55">3</td><td style="padding:3px 8px;color:#f6ad55">Vipat</td><td style="padding:3px 8px;color:#f6ad55">❌ Unfavorable</td><td style="padding:3px 8px;color:#a0aec0">Danger & loss — avoid major moves</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 8px;color:#9ae6b4">4</td><td style="padding:3px 8px;color:#9ae6b4">Kshema</td><td style="padding:3px 8px;color:#9ae6b4">✅ Favorable</td><td style="padding:3px 8px;color:#a0aec0">Well-being & safety — consolidation</td></tr>
+          <tr><td style="padding:3px 8px;color:#f6ad55">5</td><td style="padding:3px 8px;color:#f6ad55">Pratyak</td><td style="padding:3px 8px;color:#f6ad55">❌ Unfavorable</td><td style="padding:3px 8px;color:#a0aec0">Obstacles — delay launches</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 8px;color:#68d391">6</td><td style="padding:3px 8px;color:#68d391">Sadhaka</td><td style="padding:3px 8px;color:#68d391">✅ Favorable</td><td style="padding:3px 8px;color:#a0aec0">Achievement — goal pursuit, launches, proposals</td></tr>
+          <tr><td style="padding:3px 8px;color:#fc8181">7</td><td style="padding:3px 8px;color:#fc8181">Vadha</td><td style="padding:3px 8px;color:#fc8181">❌ Unfavorable</td><td style="padding:3px 8px;color:#a0aec0">Danger (= Vadhai) — avoid all risk</td></tr>
+          <tr style="background:#16202e"><td style="padding:3px 8px;color:#9ae6b4">8</td><td style="padding:3px 8px;color:#9ae6b4">Mitra</td><td style="padding:3px 8px;color:#9ae6b4">✅ Favorable</td><td style="padding:3px 8px;color:#a0aec0">Friendly — partnerships, alliances, networking</td></tr>
+          <tr><td style="padding:3px 8px;color:#ffd700">9</td><td style="padding:3px 8px;color:#ffd700">Parama Mitra</td><td style="padding:3px 8px;color:#ffd700">🌟 Most auspicious</td><td style="padding:3px 8px;color:#a0aec0">Major decisions, new ventures, sign contracts</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid #2d3748;color:#718096;font-size:0.76rem">

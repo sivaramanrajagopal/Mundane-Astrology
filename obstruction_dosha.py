@@ -67,6 +67,23 @@ _SIGN_LORDS_BY_IDX: dict[int, str] = {
 
 _FAST_PLANETS  = {"Moon", "Sun", "Mercury", "Venus"}
 
+# ── 9-Tara System (Parasara's Brihat Parasara Hora Shastra) ──────────────────
+# Classifies all 27 nakshatras relative to Janma (birth) nakshatra into 9 types.
+# Count: distance = (transit_nak - janma_nak) % 27; tara_num = (distance % 9) + 1
+TARA_NAMES: dict[int, tuple[str, str, str]] = {
+    1: ("Janma",        "neutral",     "Birth star — sensitive period, avoid stress"),
+    2: ("Sampat",       "favorable",   "Wealth & prosperity — financial decisions"),
+    3: ("Vipat",        "unfavorable", "Danger & loss — avoid major moves"),
+    4: ("Kshema",       "favorable",   "Well-being & safety — consolidation, rest"),
+    5: ("Pratyak",      "unfavorable", "Obstacles — delay launches"),
+    6: ("Sadhaka",      "favorable",   "Achievement — goal pursuit, proposals, launches"),
+    7: ("Vadha",        "unfavorable", "Danger (= Vadhai) — avoid all risk"),
+    8: ("Mitra",        "favorable",   "Friendly — partnerships, alliances, networking"),
+    9: ("Parama Mitra", "favorable",   "Most auspicious — major decisions, new ventures"),
+}
+_FAVORABLE_TARAS   = {2, 4, 6, 8, 9}
+_UNFAVORABLE_TARAS = {3, 5, 7}
+
 # ── Tithi → Soonya Rasi mapping (0-based sign indices) ────────────────────────
 # Source: Classical Tamil Jyotish / Daghda Rasi tradition.
 # Soonya = "void/empty" sign for that Tithi — planets here deliver weakened results.
@@ -238,6 +255,27 @@ def check_critical_obstruction(planet_data: dict, soonya_rasis: list[int]) -> di
     }
 
 
+def get_tara(transit_nak_idx: int, janma_nak_idx: int) -> dict:
+    """
+    Classify a transit nakshatra into one of Parasara's 9 Taras relative to Janma nak.
+
+    Formula: distance = (transit_nak_idx - janma_nak_idx) % 27
+             tara_num  = (distance % 9) + 1  → 1–9
+
+    Note: Tara 7 (Vadha) = same nakshatra as Vadhai (7th from Janma).
+    The two classical systems validate each other.
+    """
+    distance = (transit_nak_idx - janma_nak_idx) % 27
+    tara_num = (distance % 9) + 1
+    name, nature, tip = TARA_NAMES[tara_num]
+    return {
+        "tara_num":    tara_num,
+        "tara_name":   name,
+        "tara_nature": nature,
+        "tara_tip":    tip,
+    }
+
+
 def get_soonya_exit_time(
     planet_name: str,
     soonya_sign_idx: int,
@@ -357,6 +395,7 @@ def scan_all_dosha_transits(
     soonya_rasis: list[int],
     ref_dt: datetime.datetime,
     days_ahead: int = 90,
+    janma_nak_idx: int = 0,
 ) -> dict:
     """
     Single-pass 90-day forward scan returning:
@@ -385,10 +424,14 @@ def scan_all_dosha_transits(
     chandrashtama_windows: list[dict] = []
     red_zone_entries:      list[dict] = []
     critical_windows:      list[dict] = []
+    tara_windows:          list[dict] = []
 
     # ── Chandrashtama window tracking ─────────────────────────────────────────
     in_chandra = False
     chandra_start_day = 0
+
+    # ── Tara tracking (Moon only) ─────────────────────────────────────────────
+    prev_moon_tara: int = 0
 
     # ── Main day-loop ─────────────────────────────────────────────────────────
     for d in range(days_ahead + 1):
@@ -413,6 +456,21 @@ def scan_all_dosha_transits(
 
             # ── Chandrashtama (Moon only) ─────────────────────────────────────
             if p_name == "Moon":
+                # ── Tara window detection ─────────────────────────────────────
+                moon_tara = get_tara(curr_nak, janma_nak_idx)
+                if moon_tara["tara_num"] != prev_moon_tara:
+                    if moon_tara["tara_num"] in _FAVORABLE_TARAS:
+                        tara_windows.append({
+                            "tara_num":    moon_tara["tara_num"],
+                            "tara_name":   moon_tara["tara_name"],
+                            "tara_nature": moon_tara["tara_nature"],
+                            "tara_tip":    moon_tara["tara_tip"],
+                            "nak_name":    NAKSHATRAS[curr_nak],
+                            "entry_date":  day_date,
+                            "days_away":   d,
+                        })
+                    prev_moon_tara = moon_tara["tara_num"]
+
                 if curr_sign == chandrashtama_sign_idx:
                     if not in_chandra:
                         in_chandra = True
@@ -513,11 +571,13 @@ def scan_all_dosha_transits(
 
     red_zone_entries.sort(key=lambda x: x["days_away"])
     critical_windows.sort(key=lambda x: x["days_away"])
+    tara_windows.sort(key=lambda x: x["days_away"])
 
     return {
         "chandrashtama_windows": chandrashtama_windows,
         "red_zone_entries":      red_zone_entries,
         "critical_windows":      critical_windows,
+        "tara_windows":          tara_windows,
     }
 
 
@@ -651,6 +711,13 @@ class ObstructionDosha:
             h    = (s - lagna_sign_idx) % 12 + 1
             house_lordships.setdefault(lord, []).append(h)
 
+        # 9-Tara map: tara_num → list of nakshatra names for this birth chart
+        janma_nak_idx = moon_nak_idx
+        tara_map: dict[int, list[str]] = {i: [] for i in range(1, 10)}
+        for nak_i in range(27):
+            t = get_tara(nak_i, janma_nak_idx)
+            tara_map[t["tara_num"]].append(NAKSHATRAS[nak_i])
+
         return {
             # Tithi layer
             "tithi_idx":           tithi_idx,
@@ -678,6 +745,9 @@ class ObstructionDosha:
             "mudakku_house":       mudakku_house,
             "lagna_longitude":     lagna_lon,
             "lagna_sign_idx":      lagna_sign_idx,
+            # 9-Tara system
+            "janma_nak_idx":       janma_nak_idx,
+            "tara_map":            tara_map,
             "lagna_sign":          RASIS[lagna_sign_idx],
             "lagna_english":       RASIS_ENGLISH[lagna_sign_idx],
             # House lordships (planet → [house numbers ruled])
@@ -757,6 +827,7 @@ class ObstructionDosha:
                 "gandanta":         gandanta,
                 "pushkara":         pushkara,
                 "critical_obstruction": crit,
+                "tara":             get_tara(p_nak, profile["janma_nak_idx"]),
             }
 
         # Nodes
@@ -795,6 +866,7 @@ class ObstructionDosha:
                 "gandanta":         g,
                 "pushkara":         pk,
                 "critical_obstruction": _NO_DOSHA.copy(),
+                "tara":             get_tara(n_nak, self._natal_profile["janma_nak_idx"]),
             }
 
         return status
@@ -808,6 +880,7 @@ class ObstructionDosha:
             soonya_rasis           = p["soonya_rasis"],
             ref_dt                 = self._transit_dt,
             days_ahead             = 90,
+            janma_nak_idx          = p["janma_nak_idx"],
         )
 
     # ── AI Reading ────────────────────────────────────────────────────────────
@@ -928,6 +1001,13 @@ def _build_dosha_prompt(
             f"- {cw['planet']} in Soonya Rasi ({cw['soonya_sign']}) + {cw['affliction_type']} "
             f"on {cw['date'].strftime('%Y-%m-%d')}{div}"
         )
+    # ── Favorable Tara windows (action opportunities) ────────────────────────
+    tara_wins = forecast.get("tara_windows", [])
+    for tw in tara_wins[:4]:
+        upcoming.append(
+            f"- Moon enters {tw['tara_name']} Tara ({tw['nak_name']}) "
+            f"on {tw['entry_date'].strftime('%Y-%m-%d')} — ACTION: {tw['tara_tip']}"
+        )
     upcoming_str = "\n".join(upcoming) if upcoming else "No major obstruction windows in the next 90 days."
 
     # ── House lordship context ────────────────────────────────────────────────
@@ -989,9 +1069,10 @@ Instructions:
 3. For upcoming windows: describe each concisely using house context. Only call a window
    "critical" if the data labels it Critical Obstruction. Red Zone transits should be called
    "Red Zone window". If has_pushkara is True for a Red Zone entry, call it "Transformational".
-4. Give 2-3 practical action tips for the most urgent upcoming window.
-5. End with one grounding sentence about overall karmic picture.
-6. Keep the total response under 500 words. Use plain language.
+4. For Tara windows: call them ACTION windows. Sadhaka = goal pursuit/launches, Sampat = financial, Parama Mitra = major decisions, Kshema = rest/consolidation, Mitra = partnerships. Recommend the SPECIFIC action for the next Tara window.
+5. Give 2-3 practical action tips for the most urgent upcoming window.
+6. End with one grounding sentence about overall karmic picture.
+7. Keep the total response under 600 words. Use plain language.
 """
 
 
